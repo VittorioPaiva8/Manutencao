@@ -81,6 +81,21 @@ service cloud.firestore {
       allow update, delete: if gestor();
     }
 
+    // Foto de uma divergência: só nasce junto com a inspeção nova, uma por item, até ~650 KB.
+    match /fotos/{id} {
+      allow read: if ativo();
+      allow create: if ativo()
+        && request.resource.data.criadoPor == request.auth.uid
+        && request.resource.data.itemNumero is int
+        && request.resource.data.inspecaoId is string
+        && id == request.resource.data.inspecaoId + '_' + string(request.resource.data.itemNumero)
+        && request.resource.data.dados is string
+        && request.resource.data.dados.matches('data:image/jpeg;base64,.*')
+        && request.resource.data.dados.size() < 900000
+        && inspecaoNovaDoUsuario(request.resource.data.inspecaoId);
+      allow delete: if gestor();
+    }
+
     match /requerimentos/{id} {
       allow read: if ativo();
       allow create: if ativo()

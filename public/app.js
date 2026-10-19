@@ -6,7 +6,7 @@ const SDK = 'https://www.gstatic.com/firebasejs/10.14.1/';
 const { initializeApp } = await import(SDK + 'firebase-app.js');
 const {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signOut, updateProfile, connectAuthEmulator,
+  signOut, updateProfile, connectAuthEmulator, sendPasswordResetEmail,
 } = await import(SDK + 'firebase-auth.js');
 const {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, connectFirestoreEmulator,
@@ -55,6 +55,7 @@ const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
 const config = await carregarConfig();
 const app = initializeApp(config);
 const auth = getAuth(app);
+auth.languageCode = 'pt-BR';
 const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
 });
@@ -165,7 +166,7 @@ $('#lnkCadastro').addEventListener('click', () => {
 });
 $('#formLogin').addEventListener('submit', async e => {
   e.preventDefault();
-  const err = $('#loginErr'); err.hidden = true;
+  const err = $('#loginErr'); err.hidden = true; $('#loginOk').hidden = true;
   const email = $('#lEmail').value.trim(), senha = $('#lSenha').value, nome = $('#lNome').value.trim();
   const btn = $('#btnLogin'); btn.disabled = true;
   try {
@@ -195,6 +196,16 @@ function traduzErro(ex) {
   return ex.message || String(ex);
 }
 $$('.btnSair').forEach(b => b.addEventListener('click', () => signOut(auth)));
+$('#lnkSenha').addEventListener('click', async () => {
+  const err = $('#loginErr'), ok = $('#loginOk'); err.hidden = true; ok.hidden = true;
+  const email = $('#lEmail').value.trim();
+  if (!email) { err.hidden = false; err.textContent = 'Digite seu e-mail no campo acima e clique de novo em "Esqueci minha senha".'; $('#lEmail').focus(); return; }
+  try {
+    await sendPasswordResetEmail(auth, email);
+    ok.hidden = false;
+    ok.textContent = 'Se existir uma conta com ' + email + ', enviamos um link para criar uma senha nova. Confira também a caixa de spam.';
+  } catch (ex) { err.hidden = false; err.textContent = traduzErro(ex); }
+});
 $('#btnSolicitar').addEventListener('click', () => {
   const u = auth.currentUser; if (!u) return;
   setDoc(doc(db, 'usuarios', u.uid), {
@@ -321,7 +332,8 @@ function montarItens() {
       '<div class="seg" role="group" aria-label="Situação do item ' + it.numero + '">' +
         ['OK', 'MU', 'PR', 'NA'].map(s => '<button type="button" class="seg-b" data-n="' + it.numero + '" data-s="' + s + '" aria-pressed="' + (r.status === s) + '">' + s + '</button>').join('') +
       '</div>' +
-      '<div class="obs"' + (div ? '' : ' hidden') + '><textarea class="inp" maxlength="1000" data-obs="' + it.numero + '" placeholder="Descreva a divergência (obrigatório)">' + esc(r.obs || '') + '</textarea></div>' +
+      '<div class="obs"' + (div ? '' : ' hidden') + '><textarea class="inp" maxlength="1000" data-obs="' + it.numero + '" placeholder="Descreva a divergência (obrigatório)">' + esc(r.obs || '') + '</textarea>' +
+        '<div class="foto-box" id="fb' + it.numero + '">' + htmlFoto(it.numero) + '</div></div>' +
     '</div>';
   }).join('');
   contar();
@@ -330,7 +342,65 @@ function montarItens() {
 $('#itens').addEventListener('click', e => {
   const b = e.target.closest('.seg-b');
   if (b) marcar(Number(b.dataset.n), b.dataset.s);
+  const x = e.target.closest('[data-tirar-foto]');
+  if (x) { const n = Number(x.dataset.tirarFoto); delete (respostas[n] || {}).foto; $('#fb' + n).innerHTML = htmlFoto(n); }
+  const im = e.target.closest('img.foto-mini');
+  if (im) verFoto(im.src);
 });
+$('#itens').addEventListener('change', async e => {
+  const inp = e.target.closest('[data-foto]');
+  if (!inp || !inp.files[0]) return;
+  const n = Number(inp.dataset.foto);
+  $('#fb' + n).innerHTML = '<span class="dim">Preparando foto…</span>';
+  try {
+    respostas[n] = Object.assign(respostas[n] || {}, { foto: await comprimirFoto(inp.files[0]) });
+  } catch (ex) { toast('Não foi possível usar essa foto.', true); }
+  $('#fb' + n).innerHTML = htmlFoto(n);
+});
+
+// ---------- Fotos ----------
+// A foto é reduzida no próprio aparelho (lado maior até 1024 px, JPEG) e gravada no Firestore,
+// em fotos/<inspeção>_<item>. Assim ela também fica na fila quando não há internet.
+function htmlFoto(n) {
+  const f = (respostas[n] || {}).foto;
+  return f
+    ? '<img class="foto-mini" src="' + esc(f) + '" alt="Foto do item ' + n + '"><button type="button" class="btn sm" data-tirar-foto="' + n + '">Remover foto</button>'
+    : '<label class="btn sm">Adicionar foto<input type="file" accept="image/*" capture="environment" data-foto="' + n + '" hidden></label><span class="dim">Opcional</span>';
+}
+function comprimirFoto(arquivo) {
+  return new Promise((ok, falha) => {
+    const img = new Image(), url = URL.createObjectURL(arquivo);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let lado = 1024, q = 0.6, dados = '';
+      for (let i = 0; i < 4; i++) {
+        const k = Math.min(1, lado / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        dados = c.toDataURL('image/jpeg', q);
+        if (dados.length < 500000) return ok(dados);
+        lado = Math.round(lado * 0.75); q = Math.max(0.4, q - 0.1);
+      }
+      dados.length < 900000 ? ok(dados) : falha(new Error('foto grande demais'));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); falha(new Error('imagem inválida')); };
+    img.src = url;
+  });
+}
+async function carregarFotos(ids, alvo) {
+  const docs = await Promise.all(ids.map(id => getDoc(doc(db, 'fotos', id)).catch(() => null)));
+  const fotos = docs.filter(d => d && d.exists()).map(d => d.data().dados);
+  if (alvo) alvo.innerHTML = fotos.length ? fotos.filter(f => String(f).startsWith('data:image/')).map(f => '<img class="foto-mini" src="' + esc(f) + '" alt="Foto da divergência">').join('') : '<span class="dim">Sem foto</span>';
+  return fotos;
+}
+function verFoto(src) {
+  const ov = document.createElement('div');
+  ov.className = 'ov foto-ov'; ov.innerHTML = '<img alt="Foto ampliada">'; ov.firstChild.src = src;
+  ov.onclick = () => ov.remove();
+  document.body.appendChild(ov);
+}
+document.addEventListener('click', e => { const im = e.target.closest('#modalRoot img.foto-mini'); if (im) verFoto(im.src); });
 $('#itens').addEventListener('input', e => {
   const t = e.target.closest('[data-obs]');
   if (!t) return;
@@ -428,7 +498,8 @@ async function enviarChecklist() {
     const ruim = !r.status || ((r.status === 'MU' || r.status === 'PR') && !(r.obs || '').trim());
     $('#it' + it.numero).classList.toggle('erro', ruim);
     if (ruim && !primeiro) primeiro = $('#it' + it.numero);
-    return { numero: it.numero, nome: it.nome, status: r.status || '', obs: (r.obs || '').trim() };
+    const div = r.status === 'MU' || r.status === 'PR';
+    return { numero: it.numero, nome: it.nome, status: r.status || '', obs: (r.obs || '').trim(), foto: div && !!r.foto };
   });
   if (primeiro) {
     err.hidden = false; err.textContent = 'Há itens sem resposta ou divergências sem descrição (destacados em vermelho).';
@@ -461,7 +532,9 @@ async function enviarChecklist() {
     return falhar('Já existe um checklist do equipamento ' + placa + ' em ' + fmtData(dataInspecao) + '. Se precisar corrigir, fale com o gestor.');
   }
 
-  const r = registrarChecklist(inspId, {
+  const fotos = {};
+  lista.forEach(it => { if (it.foto) fotos[it.numero] = respostas[it.numero].foto; });
+  const r = registrarChecklist(inspId, fotos, {
     dataInspecao, placaId: equip.id, equipamento: v('equipamento'), placa,
     kmHr: valor == null ? '' : fmtNum(valor) + (un ? ' ' + un : ''), kmHrValor: valor, kmHrTipo: tipo, kmHrAnterior: ant ? ant.valor : null, kmHrRodado: rodado,
     avaliador: v('avaliador'), equipe: v('equipe'), cabine: v('cabine'), respostas: lista,
@@ -495,7 +568,7 @@ async function checklistExiste(inspId) {
  * Grava inspeção + requerimentos num único lote. Não espera o servidor: offline o
  * lote fica na fila do Firestore e sobe sozinho quando a conexão voltar.
  */
-function registrarChecklist(inspId, d) {
+function registrarChecklist(inspId, fotos, d) {
   const batch = writeBatch(db);
   const inspRef = doc(db, 'inspecoes', inspId);
   const cod = codigo('CHK');
@@ -541,6 +614,12 @@ function registrarChecklist(inspId, d) {
     contagem: { OK: conta('OK'), MU: conta('MU'), PR: conta('PR'), NA: conta('NA') },
     liberado, requerimentos: reqs.map(q => q.codigo),
     criadoPor: S.user.uid, criadoPorNome: S.perfil.nome || '', criadoEm: serverTimestamp(), criadoEmLocal: agora,
+  });
+
+  Object.entries(fotos).forEach(([n, dados]) => {
+    batch.set(doc(db, 'fotos', inspId + '_' + n), {
+      inspecaoId: inspId, itemNumero: Number(n), dados, criadoPor: S.user.uid, criadoEm: serverTimestamp(),
+    });
   });
 
   batch.commit().catch(e => toast('Falha ao enviar ' + cod + ': ' + traduzErro(e), true));
@@ -744,6 +823,7 @@ function abrirReq(r) {
     '<div class="ov" id="ov"><div class="modal" role="dialog" aria-modal="true">' +
       '<div class="block-h"><h2>' + esc(r.codigo) + '</h2><button class="modal-x" id="mX" aria-label="Fechar">×</button></div>' +
       '<div class="modal-b"><dl class="kv">' + campos.map(([l, v]) => '<dt>' + l + '</dt><dd>' + esc(v) + '</dd>').join('') + '</dl>' +
+        '<p class="section-t">Fotos</p><div class="fotos" id="mFotos"><span class="dim">Carregando…</span></div>' +
         '<p class="section-t">Tratamento</p>' +
         '<div class="row">' +
           '<div class="field"><label for="mStatus">Status</label><select id="mStatus" class="inp"' + (pode ? '' : ' disabled') + '>' + STATUS_REQ.map(s => '<option' + (s === r.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></div>' +
@@ -755,6 +835,7 @@ function abrirReq(r) {
   const fechar = () => { $('#modalRoot').innerHTML = ''; };
   $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
   $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') fechar(); });
+  carregarFotos([...new Set(r.inspecoes || [r.inspecaoId])].map(i => i + '_' + r.itemNumero), $('#mFotos'));
   if (!pode) return;
   // Ao marcar "OS aberta" com o campo vazio, já sugere o próximo número.
   const sugerir = () => { if ($('#mStatus').value === 'OS aberta' && !$('#mOS').value.trim()) $('#mOS').value = proximaOS(r.id); };
@@ -775,6 +856,44 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modalRoo
 // ---------- Inspeções ----------
 $('#iBusca').addEventListener('input', () => { paginas.insp = 0; renderInsp(); });
 $('#pg-insp').addEventListener('pagina', renderInsp);
+$('#inspTbody').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-id]');
+  const r = tr && S.insp.find(x => x.id === tr.dataset.id);
+  if (r) abrirInsp(r);
+});
+
+/** Checklist completo: cabeçalho, todos os itens com a situação, observações e fotos. */
+function abrirInsp(r) {
+  const campos = [['Data', fmtData(r.dataInspecao) + (r.diaSemana ? ' (' + r.diaSemana.toLowerCase() + ')' : '')], ['Placa / prefixo', r.placa],
+    ['Equipamento', r.equipamento], ['KM / HR', r.kmHr + (r.kmHrRodado != null ? ' (rodou ' + fmtNum(r.kmHrRodado) + ')' : '')], ['Avaliador', r.avaliador],
+    ['Equipe', r.equipe], ['Cabine fechada', r.cabine], ['Registrado em', fmt(r.criadoEm || r.criadoEmLocal)],
+    ['Liberado para atividades', r.liberado], ['Requerimentos', (r.requerimentos || []).join(', ')]].filter(([, v]) => v !== '' && v != null && v !== ' ()');
+  const itens = r.respostas || [];
+  const linha = it => '<tr class="' + (it.status === 'MU' || it.status === 'PR' ? 'det-div' : '') + '"><td class="dim">' + esc(it.numero) + '</td><td>' + esc(it.nome) +
+    (it.obs ? '<div class="det-obs">' + esc(it.obs) + '</div>' : '') +
+    (it.foto ? '<div class="fotos" data-foto-insp="' + esc(r.id + '_' + it.numero) + '"><span class="dim">Carregando foto…</span></div>' : '') +
+    '</td><td class="r"><span class="lg ' + esc(it.status) + '">' + esc(it.status || '—') + '</span></td></tr>';
+  const c = r.contagem || {};
+  $('#modalRoot').innerHTML =
+    '<div class="ov" id="ov"><div class="modal modal-lg" role="dialog" aria-modal="true">' +
+      '<div class="block-h"><h2>' + esc(r.codigo) + '</h2><button class="modal-x" id="mX" aria-label="Fechar">×</button></div>' +
+      '<div class="modal-b"><dl class="kv">' + campos.map(([l, v]) => '<dt>' + l + '</dt><dd>' + esc(v) + '</dd>').join('') + '</dl>' +
+        '<div class="row" style="justify-content:space-between;align-items:center"><p class="section-t">Itens · OK ' + (c.OK || 0) + ' · MU ' + (c.MU || 0) + ' · PR ' + (c.PR || 0) + ' · NA ' + (c.NA || 0) + '</p>' +
+        '<label class="chk"><input type="checkbox" id="mSoDiv"' + ((c.MU || 0) + (c.PR || 0) ? ' checked' : '') + '> Só divergências</label></div>' +
+        '<div class="tbl-wrap"><table><tbody id="mItens"></tbody></table></div></div>' +
+      '<div class="modal-f"><button class="btn" id="mCancelar">Fechar</button></div>' +
+    '</div></div>';
+  const pintar = () => {
+    const so = $('#mSoDiv').checked;
+    const lista = itens.filter(it => !so || it.status === 'MU' || it.status === 'PR');
+    $('#mItens').innerHTML = lista.length ? lista.map(linha).join('') : '<tr><td class="dim">Nenhuma divergência neste checklist.</td></tr>';
+    $$('[data-foto-insp]').forEach(el => carregarFotos([el.dataset.fotoInsp], el));
+  };
+  $('#mSoDiv').onchange = pintar; pintar();
+  const fechar = () => { $('#modalRoot').innerHTML = ''; };
+  $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
+  $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') fechar(); });
+}
 function renderInsp() {
   const q = $('#iBusca').value.trim().toLowerCase();
   const lista = S.insp.filter(r => !q || [r.codigo, r.placa, r.equipamento, r.avaliador].join(' ').toLowerCase().includes(q));
@@ -782,7 +901,7 @@ function renderInsp() {
   const maisInsp = S.insp.length >= LIM.insp ? () => { LIM.insp += 300; ouvirInsp(); } : null;
   $('#inspTbody').innerHTML = lista.length ? paginar('insp', lista.map(r => {
     const c = r.contagem || {};
-    return '<tr>' +
+    return '<tr class="click" data-id="' + esc(r.id) + '">' +
       '<td class="mono">' + esc(r.codigo) + (r.pend ? ' <span class="tag-pend">a enviar</span>' : '') + '</td>' +
       '<td class="nw">' + esc(fmtData(r.dataInspecao)) + '</td>' +
       '<td class="dim">' + esc(r.diaSemana) + '</td>' +

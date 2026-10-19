@@ -193,6 +193,16 @@ textarea.inp{resize:vertical;min-height:62px}
 .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
 .scroll{max-height:520px;overflow:auto}
+.foto-box{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.fotos{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in}
+.foto-ov{align-items:center;z-index:70;cursor:zoom-out}
+.foto-ov img{max-width:100%;max-height:90vh;border-radius:8px}
+.modal.modal-lg{max-width:860px}
+#mItens td{vertical-align:top}
+#mItens .lg{display:inline-block;min-width:34px;text-align:center}
+.det-div td{background:var(--accent-soft)}
+.det-obs{font-size:12px;color:var(--fg);margin-top:4px;white-space:pre-line}
 .guia{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--bg)}
 .guia-i{display:flex;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
 .guia-i .lg{font-size:13px;min-width:36px;flex:none;text-align:center;padding:4px 6px;border-radius:6px}
@@ -238,7 +248,9 @@ textarea.inp{resize:vertical;min-height:62px}
       <div class="field"><label for="lSenha">Senha</label><input id="lSenha" class="inp" type="password" autocomplete="current-password" required></div>
       <div id="loginErr" class="callout err" hidden></div>
       <button class="btn primary" id="btnLogin" type="submit">Entrar</button>
+      <div id="loginOk" class="callout ok" hidden></div>
       <button class="lnk" id="lnkCadastro" type="button">Primeiro acesso? Criar conta</button>
+      <button class="lnk" id="lnkSenha" type="button">Esqueci minha senha</button>
       <p class="hint">O primeiro acesso precisa de internet. Depois o app funciona sem sinal.</p>
     </div>
   </form>
@@ -361,7 +373,7 @@ textarea.inp{resize:vertical;min-height:62px}
 
   <!-- INSPEÇÕES -->
   <section class="view" id="v-insp" hidden>
-    <div class="page-h"><div><h2>Inspeções realizadas</h2><p>Últimos 300 checklists. "A enviar" indica registros salvos no aparelho que ainda não chegaram ao servidor.</p></div></div>
+    <div class="page-h"><div><h2>Inspeções realizadas</h2><p>Clique em um checklist para ver todos os itens, as observações e as fotos. "A enviar" indica registros salvos no aparelho que ainda não chegaram ao servidor.</p></div></div>
     <div class="block">
       <div class="block-h"><h2>Histórico</h2><span id="inspCont"></span></div>
       <div class="filters"><input class="inp" id="iBusca" type="search" placeholder="Buscar código, placa, equipamento, avaliador"></div>
