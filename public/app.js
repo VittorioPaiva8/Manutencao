@@ -11,7 +11,7 @@ const {
 const {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, connectFirestoreEmulator,
   collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, limit,
-  writeBatch, serverTimestamp, increment, arrayUnion,
+  writeBatch, serverTimestamp, increment, arrayUnion, getDocs,
 } = await import(SDK + 'firebase-firestore.js');
 
 // ---------------------------------------------------------------------------
@@ -41,6 +41,8 @@ const ITEM_LIBERACAO = 50;
 // As regras do Firestore aceitam itens numerados até 60: os 50 da revisão 003 mais 10 extras.
 const MAX_ITEM = 60;
 const POR_PAGINA = 50;
+/** Maior número de item já usado. Itens excluídos que geraram requerimento ficam em `retirados` e não são reaproveitados. */
+const ultimoNumero = () => Math.max(ITENS_PADRAO.length, ...(S.cfg.extras || []).map(e => e.numero), ...(S.cfg.retirados || []));
 const STATUS_REQ = ['Aberto', 'Em análise', 'OS aberta', 'Concluído', 'Cancelado'];
 const STATUS_ABERTOS = ['Aberto', 'Em análise', 'OS aberta'];
 const DIAS = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
@@ -724,14 +726,15 @@ function renderCadastros() {
     '<td class="r"><button class="btn sm" data-del-eq="' + esc(e.id) + '">Remover</button></td></tr>').join('')
     : '<tr><td colspan="5" class="dim">Nenhum equipamento cadastrado.</td></tr>';
   const criticos = new Set(S.cfg.criticos || []), inativos = new Set(S.cfg.inativos || []);
-  const livres = MAX_ITEM - Math.max(ITENS_PADRAO.length, ...(S.cfg.extras || []).map(e => e.numero));
+  const livres = MAX_ITEM - ultimoNumero();
   $('#novoItemInfo').textContent = livres > 0 ? 'Ainda cabem ' + livres + ' item(ns) novo(s).' : 'Limite de itens novos atingido. Desative os que não usa mais.';
   $('#novoItemNome').disabled = $('#btnNovoItem').disabled = livres <= 0;
   $('#cfgItens').innerHTML = todosItens().map(it => {
     const n = it.numero;
     return '<tr><td class="dim">' + n + '</td><td>' + esc(it.nome) + (it.extra ? ' <span class="tag-pend" style="color:var(--ok);border-color:var(--ok)">novo</span>' : '') + '</td>' +
       '<td><label class="chk"><input type="checkbox" data-crit="' + n + '"' + (criticos.has(n) ? ' checked' : '') + '> crítico</label></td>' +
-      '<td><label class="chk"><input type="checkbox" data-ativo="' + n + '"' + (inativos.has(n) ? '' : ' checked') + '> ativo</label></td></tr>';
+      '<td><label class="chk"><input type="checkbox" data-ativo="' + n + '"' + (inativos.has(n) ? '' : ' checked') + '> ativo</label></td>' +
+      '<td class="r nw">' + (it.extra ? '<button type="button" class="btn sm" data-edit-item="' + n + '">Editar</button> <button type="button" class="btn sm" data-del-item="' + n + '">Excluir</button>' : '') + '</td></tr>';
   }).join('');
 }
 
@@ -753,6 +756,31 @@ $('#cfgItens').addEventListener('change', () => {
   const inativos = $$('[data-ativo]').filter(c => !c.checked).map(c => Number(c.dataset.ativo));
   setDoc(doc(db, 'config', 'checklist'), { criticos, inativos }, { merge: true }).catch(ex => toast(traduzErro(ex), true));
 });
+$('#cfgItens').addEventListener('click', async e => {
+  const ed = e.target.closest('[data-edit-item]'), del = e.target.closest('[data-del-item]');
+  if (!ed && !del) return;
+  const n = Number((ed || del).dataset.editItem || (ed || del).dataset.delItem);
+  const extras = S.cfg.extras || [], item = extras.find(x => x.numero === n);
+  if (!item) return;
+  if (ed) {
+    const nome = (prompt('Novo nome do item ' + n + ':', item.nome) || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    if (!nome || nome === item.nome) return;
+    if (todosItens().some(it => it.nome === nome)) { toast('Já existe um item com esse nome.', true); return; }
+    setDoc(doc(db, 'config', 'checklist'), { extras: extras.map(x => x.numero === n ? { numero: n, nome } : x) }, { merge: true })
+      .then(() => toast('Item ' + n + ' renomeado')).catch(ex => toast(traduzErro(ex), true));
+    return;
+  }
+  if (!confirm('Excluir o item ' + n + ' - ' + item.nome + '?\n\nEle sai do checklist. Checklists e requerimentos antigos continuam com o registro dele.')) return;
+  // Se o item já gerou requerimento, o número fica reservado para não misturar o histórico.
+  let usado = true;
+  try { usado = !(await getDocs(query(collection(db, 'requerimentos'), where('itemNumero', '==', n), limit(1)))).empty; } catch (ex) { /* offline: reserva por segurança */ }
+  setDoc(doc(db, 'config', 'checklist'), {
+    extras: extras.filter(x => x.numero !== n),
+    criticos: (S.cfg.criticos || []).filter(x => x !== n),
+    inativos: (S.cfg.inativos || []).filter(x => x !== n),
+    retirados: usado ? [...new Set([...(S.cfg.retirados || []), n])] : (S.cfg.retirados || []),
+  }, { merge: true }).then(() => toast('Item ' + n + ' excluído')).catch(ex => toast(traduzErro(ex), true));
+});
 $('#formItem').addEventListener('submit', e => {
   e.preventDefault();
   const nome = $('#novoItemNome').value.trim().toUpperCase().replace(/\s+/g, ' ');
@@ -760,7 +788,7 @@ $('#formItem').addEventListener('submit', e => {
   if (todosItens().some(it => it.nome === nome)) { toast('Já existe um item com esse nome.', true); return; }
   const extras = S.cfg.extras || [];
   // Número nunca reaproveitado, para não misturar o histórico de requerimentos.
-  const numero = Math.max(ITENS_PADRAO.length, ...extras.map(x => x.numero)) + 1;
+  const numero = ultimoNumero() + 1;
   if (numero > MAX_ITEM) { toast('Limite de itens atingido.', true); return; }
   setDoc(doc(db, 'config', 'checklist'), { extras: [...extras, { numero, nome }] }, { merge: true })
     .then(() => toast('Item ' + numero + ' adicionado ao checklist')).catch(ex => toast(traduzErro(ex), true));
