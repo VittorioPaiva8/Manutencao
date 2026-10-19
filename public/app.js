@@ -38,6 +38,9 @@ const ITENS_PADRAO = [
   'LIBERAÇÃO PARA ATIVIDADES',
 ];
 const ITEM_LIBERACAO = 50;
+// As regras do Firestore aceitam itens numerados até 60: os 50 da revisão 003 mais 10 extras.
+const MAX_ITEM = 60;
+const POR_PAGINA = 50;
 const STATUS_REQ = ['Aberto', 'Em análise', 'OS aberta', 'Concluído', 'Cancelado'];
 const STATUS_ABERTOS = ['Aberto', 'Em análise', 'OS aberta'];
 const DIAS = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
@@ -107,6 +110,28 @@ function toast(msg, err) {
   r.innerHTML = '<div class="toast' + (err ? ' err' : '') + '" role="status">' + esc(msg) + '</div>';
   clearTimeout(toast.t); toast.t = setTimeout(() => { r.innerHTML = ''; }, 3800);
 }
+/** Mostra uma página de `linhas` (HTML de <tr>) e os botões de página em `#pg-<nome>`. */
+const paginas = {};
+function paginar(nome, linhas, maisAntigos) {
+  const total = linhas.length, nPag = Math.max(1, Math.ceil(total / POR_PAGINA));
+  const pag = Math.min(paginas[nome] || 0, nPag - 1); paginas[nome] = pag;
+  const el = $('#pg-' + nome);
+  const ini = pag * POR_PAGINA, fim = Math.min(total, ini + POR_PAGINA);
+  const mostrarMais = maisAntigos && pag === nPag - 1;
+  el.hidden = nPag <= 1 && !mostrarMais;
+  el.innerHTML = '<span class="dim">' + (total ? (ini + 1) + '–' + fim + ' de ' + total : '') + '</span><div class="actions">' +
+    (nPag > 1 ? '<button class="btn sm" data-pg="-1"' + (pag ? '' : ' disabled') + '>Anterior</button><span class="dim">Página ' + (pag + 1) + ' de ' + nPag + '</span>' +
+      '<button class="btn sm" data-pg="1"' + (pag < nPag - 1 ? '' : ' disabled') + '>Próxima</button>' : '') +
+    (mostrarMais ? '<button class="btn sm dark" data-mais="1">Carregar mais antigos</button>' : '') + '</div>';
+  el.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mais) { maisAntigos(); return; }
+    paginas[nome] = pag + Number(b.dataset.pg); el.dispatchEvent(new Event('pagina'));
+    el.previousElementSibling.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+  return linhas.slice(ini, fim).join('');
+}
+
 function mostrarTela(id) {
   ['#telaLogin', '#telaAguardando', '#telaApp'].forEach(t => { $(t).hidden = t !== id; });
   $('#loading').hidden = true;
@@ -212,7 +237,7 @@ function iniciarApp() {
   const ouvir = (q, fn) => S.subs.push(onSnapshot(q, { includeMetadataChanges: true }, fn, e => console.warn(e)));
 
   ouvir(doc(db, 'config', 'checklist'), snap => {
-    S.cfg = Object.assign({ criticos: [], inativos: [] }, snap.exists() ? snap.data() : {});
+    S.cfg = Object.assign({ criticos: [], inativos: [], extras: [] }, snap.exists() ? snap.data() : {});
     montarItens(); renderCadastros();
   });
   ouvir(collection(db, 'equipamentos'), snap => {
@@ -225,15 +250,7 @@ function iniciarApp() {
     S.reqAbertos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderReq();
   });
-  ouvir(query(collection(db, 'requerimentos'), orderBy('criadoEmLocal', 'desc'), limit(500)), snap => {
-    S.reqRecentes = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }));
-    renderReq();
-  });
-  ouvir(query(collection(db, 'inspecoes'), orderBy('criadoEmLocal', 'desc'), limit(300)), snap => {
-    S.insp = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }));
-    S.pendentes = S.insp.filter(i => i.pend && i.criadoPor === S.user.uid).length;
-    atualizarRede(); renderInsp();
-  });
+  ouvirReqRecentes(); ouvirInsp();
   if (gestor()) {
     ouvir(collection(db, 'usuarios'), snap => {
       S.usuarios = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -248,6 +265,27 @@ function iniciarApp() {
   }
 }
 
+// Listas com limite que cresce no botão "Carregar mais antigos".
+const LIM = { req: 500, insp: 300 }, unsubLista = {};
+function ouvirLimitado(chave, q, fn) {
+  if (unsubLista[chave]) unsubLista[chave]();
+  unsubLista[chave] = onSnapshot(q, { includeMetadataChanges: true }, fn, e => console.warn(e));
+  S.subs.push(() => { if (unsubLista[chave]) { unsubLista[chave](); unsubLista[chave] = null; } });
+}
+function ouvirReqRecentes() {
+  ouvirLimitado('req', query(collection(db, 'requerimentos'), orderBy('criadoEmLocal', 'desc'), limit(LIM.req)), snap => {
+    S.reqRecentes = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }));
+    renderReq();
+  });
+}
+function ouvirInsp() {
+  ouvirLimitado('insp', query(collection(db, 'inspecoes'), orderBy('criadoEmLocal', 'desc'), limit(LIM.insp)), snap => {
+    S.insp = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }));
+    S.pendentes = S.insp.filter(i => i.pend && i.criadoPor === S.user.uid).length;
+    atualizarRede(); renderInsp();
+  });
+}
+
 // ---------- Abas ----------
 $$('.tab').forEach(t => t.addEventListener('click', () => abrirAba(t.dataset.view)));
 function abrirAba(v) {
@@ -257,10 +295,17 @@ function abrirAba(v) {
 }
 
 // ---------- Checklist ----------
+/** Itens da revisão 003 mais os extras do gestor; os extras entram antes da liberação (item 50). */
+function todosItens() {
+  const criticos = new Set(S.cfg.criticos || []);
+  const padrao = ITENS_PADRAO.map((nome, i) => ({ numero: i + 1, nome, extra: false }));
+  const extras = (S.cfg.extras || []).map(e => ({ numero: e.numero, nome: e.nome, extra: true }));
+  const i = padrao.findIndex(it => it.numero === ITEM_LIBERACAO);
+  return [...padrao.slice(0, i), ...extras, ...padrao.slice(i)].map(it => ({ ...it, critico: criticos.has(it.numero) }));
+}
 function montarItens() {
-  const criticos = new Set(S.cfg.criticos || []), inativos = new Set(S.cfg.inativos || []);
-  S.itens = ITENS_PADRAO.map((nome, i) => ({ numero: i + 1, nome, critico: criticos.has(i + 1) }))
-    .filter(it => !inativos.has(it.numero));
+  const inativos = new Set(S.cfg.inativos || []);
+  S.itens = todosItens().filter(it => !inativos.has(it.numero));
   $('#itens').innerHTML = S.itens.map(it => {
     const r = respostas[it.numero] || {};
     const div = r.status === 'MU' || r.status === 'PR';
@@ -453,7 +498,8 @@ function limparFormulario() {
 }
 
 // ---------- Requerimentos ----------
-['#rBusca', '#rStatus', '#rPrio'].forEach(s => $(s).addEventListener('input', renderReq));
+['#rBusca', '#rStatus', '#rPrio'].forEach(s => $(s).addEventListener('input', () => { paginas.req = 0; renderReq(); }));
+$('#pg-req').addEventListener('pagina', renderReq);
 $('#rStatus').innerHTML = '<option value="abertos">Em aberto</option><option value="">Todos os status</option>' + STATUS_REQ.map(s => '<option>' + s + '</option>').join('');
 
 function renderReq() {
@@ -475,7 +521,8 @@ function renderReq() {
   const lista = base.filter(r => (!pr || r.prioridade === pr) &&
     (!q || [r.codigo, r.placa, r.equipamento, r.itemNome, r.numeroOS].join(' ').toLowerCase().includes(q)));
   $('#reqCont').textContent = lista.length + ' requerimento(s)';
-  $('#reqTbody').innerHTML = lista.length ? lista.map(r =>
+  const maisReq = st !== 'abertos' && S.reqRecentes.length >= LIM.req ? () => { LIM.req += 500; ouvirReqRecentes(); } : null;
+  $('#reqTbody').innerHTML = lista.length ? paginar('req', lista.map(r =>
     '<tr class="click" data-id="' + esc(r.id) + '">' +
       '<td class="mono">' + esc(r.codigo) + (r.pend ? ' <span class="tag-pend">a enviar</span>' : '') + '</td>' +
       '<td class="nw dim">' + esc(fmt(r.criadoEm || r.criadoEmLocal)) + '</td>' +
@@ -486,8 +533,8 @@ function renderReq() {
       '<td class="r mono">' + esc(r.ocorrencias) + '</td>' +
       '<td class="mono">' + (esc(r.numeroOS) || '<span class="dim">—</span>') + '</td>' +
       '<td><span class="pill s-' + slug(r.status) + '">' + esc(r.status) + '</span></td>' +
-    '</tr>').join('')
-    : '<tr><td colspan="9"><div class="empty"><h3>Nenhum requerimento</h3><p>Quando um checklist tiver itens MU ou PR, os requerimentos aparecem aqui.</p></div></td></tr>';
+    '</tr>'), maisReq)
+    : (paginar('req', [], maisReq), '') + '<tr><td colspan="9"><div class="empty"><h3>Nenhum requerimento</h3><p>Quando um checklist tiver itens MU ou PR, os requerimentos aparecem aqui.</p></div></td></tr>';
 }
 
 $('#reqTbody').addEventListener('click', e => {
@@ -498,7 +545,8 @@ $('#reqTbody').addEventListener('click', e => {
 });
 
 // ---------- Finalizados (gestor) ----------
-['#fBusca', '#fPeriodo', '#fStatus'].forEach(s => $(s).addEventListener('input', renderFinalizados));
+['#fBusca', '#fPeriodo', '#fStatus'].forEach(s => $(s).addEventListener('input', () => { paginas.fin = 0; renderFinalizados(); }));
+$('#pg-fin').addEventListener('pagina', renderFinalizados);
 const paraData = v => v && v.toDate ? v.toDate() : (typeof v === 'number' ? new Date(v) : null);
 const diasAteFechar = r => {
   const a = paraData(r.criadoEm || r.criadoEmLocal), f = paraData(r.fechadoEm);
@@ -530,7 +578,7 @@ function renderFinalizados() {
     kpi('Tempo médio', media + (dias.length ? ' d' : ''), 'da abertura à conclusão');
   renderGraficosFin(lista);
   $('#finCont').textContent = lista.length + ' requerimento(s)';
-  $('#finTbody').innerHTML = lista.length ? lista.map(r => {
+  $('#finTbody').innerHTML = lista.length ? paginar('fin', lista.map(r => {
     const d = diasAteFechar(r);
     return '<tr class="click" data-id="' + esc(r.id) + '">' +
       '<td class="mono">' + esc(r.codigo) + (r.pend ? ' <span class="tag-pend">a enviar</span>' : '') + '</td>' +
@@ -545,8 +593,8 @@ function renderFinalizados() {
       '<td>' + (esc(r.responsavel) || '<span class="dim">—</span>') + '</td>' +
       '<td><span class="pill s-' + slug(r.status) + '">' + esc(r.status) + '</span></td>' +
     '</tr>';
-  }).join('')
-    : '<tr><td colspan="11"><div class="empty"><h3>Nenhum requerimento finalizado</h3><p>Quando um requerimento for marcado como Concluído ou Cancelado, ele aparece aqui. Tente outro período.</p></div></td></tr>';
+  }))
+    : (paginar('fin', []), '') + '<tr><td colspan="11"><div class="empty"><h3>Nenhum requerimento finalizado</h3><p>Quando um requerimento for marcado como Concluído ou Cancelado, ele aparece aqui. Tente outro período.</p></div></td></tr>';
 }
 function renderGraficosFin(lista) {
   const bloco = (titulo, extra, corpo) => '<div class="block"><div class="block-h"><h2>' + titulo + '</h2>' + (extra ? '<span>' + extra + '</span>' : '') + '</div><div class="block-b">' + corpo + '</div></div>';
@@ -641,12 +689,14 @@ function abrirReq(r) {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modalRoot').innerHTML = ''; });
 
 // ---------- Inspeções ----------
-$('#iBusca').addEventListener('input', renderInsp);
+$('#iBusca').addEventListener('input', () => { paginas.insp = 0; renderInsp(); });
+$('#pg-insp').addEventListener('pagina', renderInsp);
 function renderInsp() {
   const q = $('#iBusca').value.trim().toLowerCase();
   const lista = S.insp.filter(r => !q || [r.codigo, r.placa, r.equipamento, r.avaliador].join(' ').toLowerCase().includes(q));
   $('#inspCont').textContent = lista.length + ' registro(s)';
-  $('#inspTbody').innerHTML = lista.length ? lista.map(r => {
+  const maisInsp = S.insp.length >= LIM.insp ? () => { LIM.insp += 300; ouvirInsp(); } : null;
+  $('#inspTbody').innerHTML = lista.length ? paginar('insp', lista.map(r => {
     const c = r.contagem || {};
     return '<tr>' +
       '<td class="mono">' + esc(r.codigo) + (r.pend ? ' <span class="tag-pend">a enviar</span>' : '') + '</td>' +
@@ -662,8 +712,8 @@ function renderInsp() {
       '<td><span class="pill s-' + slug(r.liberado) + '">' + esc(r.liberado) + '</span></td>' +
       '<td class="dim">' + (esc((r.requerimentos || []).join(', ')) || '—') + '</td>' +
     '</tr>';
-  }).join('')
-    : '<tr><td colspan="12"><div class="empty"><h3>Nenhuma inspeção ainda</h3><p>Os checklists registrados aparecem aqui.</p></div></td></tr>';
+  }), maisInsp)
+    : (paginar('insp', [], maisInsp), '') + '<tr><td colspan="12"><div class="empty"><h3>Nenhuma inspeção ainda</h3><p>Os checklists registrados aparecem aqui.</p></div></td></tr>';
 }
 
 // ---------- Cadastros (gestor) ----------
@@ -674,9 +724,12 @@ function renderCadastros() {
     '<td class="r"><button class="btn sm" data-del-eq="' + esc(e.id) + '">Remover</button></td></tr>').join('')
     : '<tr><td colspan="5" class="dim">Nenhum equipamento cadastrado.</td></tr>';
   const criticos = new Set(S.cfg.criticos || []), inativos = new Set(S.cfg.inativos || []);
-  $('#cfgItens').innerHTML = ITENS_PADRAO.map((nome, i) => {
-    const n = i + 1;
-    return '<tr><td class="dim">' + n + '</td><td>' + esc(nome) + '</td>' +
+  const livres = MAX_ITEM - Math.max(ITENS_PADRAO.length, ...(S.cfg.extras || []).map(e => e.numero));
+  $('#novoItemInfo').textContent = livres > 0 ? 'Ainda cabem ' + livres + ' item(ns) novo(s).' : 'Limite de itens novos atingido. Desative os que não usa mais.';
+  $('#novoItemNome').disabled = $('#btnNovoItem').disabled = livres <= 0;
+  $('#cfgItens').innerHTML = todosItens().map(it => {
+    const n = it.numero;
+    return '<tr><td class="dim">' + n + '</td><td>' + esc(it.nome) + (it.extra ? ' <span class="tag-pend" style="color:var(--ok);border-color:var(--ok)">novo</span>' : '') + '</td>' +
       '<td><label class="chk"><input type="checkbox" data-crit="' + n + '"' + (criticos.has(n) ? ' checked' : '') + '> crítico</label></td>' +
       '<td><label class="chk"><input type="checkbox" data-ativo="' + n + '"' + (inativos.has(n) ? '' : ' checked') + '> ativo</label></td></tr>';
   }).join('');
@@ -698,7 +751,20 @@ $('#eqTbody').addEventListener('click', e => {
 $('#cfgItens').addEventListener('change', () => {
   const criticos = $$('[data-crit]').filter(c => c.checked).map(c => Number(c.dataset.crit));
   const inativos = $$('[data-ativo]').filter(c => !c.checked).map(c => Number(c.dataset.ativo));
-  setDoc(doc(db, 'config', 'checklist'), { criticos, inativos }).catch(ex => toast(traduzErro(ex), true));
+  setDoc(doc(db, 'config', 'checklist'), { criticos, inativos }, { merge: true }).catch(ex => toast(traduzErro(ex), true));
+});
+$('#formItem').addEventListener('submit', e => {
+  e.preventDefault();
+  const nome = $('#novoItemNome').value.trim().toUpperCase().replace(/\s+/g, ' ');
+  if (!nome) return;
+  if (todosItens().some(it => it.nome === nome)) { toast('Já existe um item com esse nome.', true); return; }
+  const extras = S.cfg.extras || [];
+  // Número nunca reaproveitado, para não misturar o histórico de requerimentos.
+  const numero = Math.max(ITENS_PADRAO.length, ...extras.map(x => x.numero)) + 1;
+  if (numero > MAX_ITEM) { toast('Limite de itens atingido.', true); return; }
+  setDoc(doc(db, 'config', 'checklist'), { extras: [...extras, { numero, nome }] }, { merge: true })
+    .then(() => toast('Item ' + numero + ' adicionado ao checklist')).catch(ex => toast(traduzErro(ex), true));
+  $('#novoItemNome').value = '';
 });
 
 function renderUsuarios() {

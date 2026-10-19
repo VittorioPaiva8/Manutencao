@@ -193,6 +193,8 @@ textarea.inp{resize:vertical;min-height:62px}
 .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
 .scroll{max-height:520px;overflow:auto}
+.pager{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;border-top:1px solid var(--line);font-size:12px}
+.pager .actions{align-items:center}
 
 /* Gráficos (Finalizados) */
 .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
@@ -340,6 +342,7 @@ textarea.inp{resize:vertical;min-height:62px}
         <thead><tr><th>Requerimento</th><th>Abertura</th><th>Placa</th><th>Equipamento</th><th>Item</th><th>Prioridade</th><th class="r">Ocorr.</th><th>Nº OS</th><th>Status</th></tr></thead>
         <tbody id="reqTbody"></tbody>
       </table></div>
+      <div class="pager" id="pg-req" hidden></div>
     </div>
   </section>
 
@@ -353,6 +356,7 @@ textarea.inp{resize:vertical;min-height:62px}
         <thead><tr><th>Inspeção</th><th>Data</th><th>Dia</th><th>Placa</th><th>Equipamento</th><th>Avaliador</th><th class="r">OK</th><th class="r">MU</th><th class="r">PR</th><th class="r">NA</th><th>Liberado</th><th>Requerimentos</th></tr></thead>
         <tbody id="inspTbody"></tbody>
       </table></div>
+      <div class="pager" id="pg-insp" hidden></div>
     </div>
   </section>
 
@@ -377,6 +381,7 @@ textarea.inp{resize:vertical;min-height:62px}
         <thead><tr><th>Requerimento</th><th>Abertura</th><th>Fechamento</th><th class="r">Dias</th><th>Placa</th><th>Equipamento</th><th>Item</th><th>Prioridade</th><th>Nº OS</th><th>Responsável</th><th>Status</th></tr></thead>
         <tbody id="finTbody"></tbody>
       </table></div>
+      <div class="pager" id="pg-fin" hidden></div>
     </div>
   </section>
 
@@ -400,6 +405,11 @@ textarea.inp{resize:vertical;min-height:62px}
       </div>
       <div class="block">
         <div class="block-h"><h2>Itens do checklist</h2><span>Salva ao marcar</span></div>
+        <form class="block-b row" id="formItem" style="border-bottom:1px solid var(--line)">
+          <div class="field" style="flex:3 1 220px"><label for="novoItemNome">Novo item</label><input id="novoItemNome" class="inp" maxlength="120" placeholder="Ex.: GIROFLEX" required></div>
+          <button class="btn dark" id="btnNovoItem" type="submit">Adicionar item</button>
+          <p class="hint" id="novoItemInfo" style="flex-basis:100%"></p>
+        </form>
         <div class="tbl-wrap scroll"><table><tbody id="cfgItens"></tbody></table></div>
       </div>
     </div>
