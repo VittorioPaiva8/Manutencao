@@ -57,6 +57,13 @@ service cloud.firestore {
     match /equipamentos/{id} {
       allow read: if ativo();
       allow write: if gestor();
+      // Operador só atualiza a leitura do KM / horímetro, e nunca para um valor menor.
+      allow update: if ativo()
+        && so(['medidorAtual', 'medidorEm', 'medidorPor'])
+        && request.resource.data.medidorAtual is number
+        && request.resource.data.medidorPor == request.auth.uid
+        && request.resource.data.medidorEm == request.time
+        && (!('medidorAtual' in resource.data) || request.resource.data.medidorAtual >= resource.data.medidorAtual);
     }
 
     match /inspecoes/{id} {

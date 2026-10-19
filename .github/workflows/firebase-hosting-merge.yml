@@ -17,3 +17,13 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MANUTENCAO_C2F1F }}
           channelId: live
           projectId: manutencao-c2f1f
+      # Publica também as regras do banco. Precisa do papel "Firebase Rules Admin" na conta de serviço;
+      # sem ele, este passo falha sem impedir a publicação do site.
+      - name: Regras do Firestore
+        continue-on-error: true
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MANUTENCAO_C2F1F }}
+        run: |
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" npx --yes firebase-tools@13 deploy --only firestore:rules --project manutencao-c2f1f --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"

@@ -246,7 +246,7 @@ function iniciarApp() {
     S.equip = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.placa).localeCompare(b.placa));
     $('#listaPlaca').innerHTML = S.equip.map(e => '<option value="' + esc(e.placa) + '">' + esc(e.equipamento) + '</option>').join('');
     $('#listaEquip').innerHTML = [...new Set(S.equip.map(e => e.equipamento))].map(v => '<option value="' + esc(v) + '">').join('');
-    renderCadastros();
+    renderCadastros(); mostrarMedidor();
   });
   ouvir(query(collection(db, 'requerimentos'), where('status', 'in', STATUS_ABERTOS)), snap => {
     S.reqAbertos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -284,7 +284,7 @@ function ouvirInsp() {
   ouvirLimitado('insp', query(collection(db, 'inspecoes'), orderBy('criadoEmLocal', 'desc'), limit(LIM.insp)), snap => {
     S.insp = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }));
     S.pendentes = S.insp.filter(i => i.pend && i.criadoPor === S.user.uid).length;
-    atualizarRede(); renderInsp();
+    atualizarRede(); renderInsp(); renderCadastros(); mostrarMedidor();
   });
 }
 
@@ -357,14 +357,45 @@ function contar() {
   $('#cFalta').textContent = S.itens.length - c.OK - c.MU - c.PR - c.NA;
 }
 
+// ---------- KM / horímetro ----------
+// A leitura atual do equipamento é a maior entre a do cadastro e a do último checklist já carregado.
+const UNID = { KM: 'km', HR: 'h' };
+const fmtNum = n => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+// Aceita o jeito brasileiro: "12.345,6" ou "12.345" (ponto de milhar) e também "12345.6".
+const lerNum = s => {
+  let t = String(s || '').trim().replace(/\s/g, '');
+  if (!t) return null;
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : NaN;
+};
+function leituraAtual(e) {
+  let atual = typeof e.medidorAtual === 'number' ? { valor: e.medidorAtual, em: e.medidorEm } : null;
+  S.insp.forEach(i => {
+    if (i.placaId === e.id && typeof i.kmHrValor === 'number' && (!atual || i.kmHrValor > atual.valor)) atual = { valor: i.kmHrValor, em: i.criadoEm || i.criadoEmLocal };
+  });
+  return atual;
+}
+function mostrarMedidor() {
+  const p = $('#placa').value.trim().toUpperCase();
+  const e = S.equip.find(x => String(x.placa).toUpperCase() === p);
+  const tipo = e && e.tipoMedidor;
+  $('#kmHrLbl').textContent = tipo === 'HR' ? 'Horímetro atual (h) *' : tipo === 'KM' ? 'KM atual *' : 'KM / HR';
+  const a = e && leituraAtual(e);
+  $('#kmHrInfo').textContent = a ? 'Última leitura: ' + fmtNum(a.valor) + ' ' + (UNID[tipo] || '') + (a.em ? ' em ' + fmt(a.em).slice(0, 10) : '') : '';
+  $('#kmHrInfo').hidden = !a;
+}
 $('#placa').addEventListener('change', function () {
   const p = this.value.trim().toUpperCase();
   const e = S.equip.find(x => String(x.placa).toUpperCase() === p);
+  mostrarMedidor();
   if (!e) return;
   if (!$('#equipamento').value) $('#equipamento').value = e.equipamento || '';
   if (!$('#equipe').value) $('#equipe').value = e.equipe || '';
   if (e.cabine) $('#cabine').value = e.cabine;
 });
+$('#placa').addEventListener('input', mostrarMedidor);
 
 // Trava contra cliques repetidos: o botão fica desligado durante o envio e por alguns segundos depois.
 const ESPERA_ENTRE_ENVIOS_MS = 5000;
@@ -410,6 +441,20 @@ async function enviarChecklist() {
   const dataInspecao = v('dataInspecao') || hojeISO();
   const atraso = Date.now() - new Date(dataInspecao + 'T12:00:00');
   if (atraso > 30 * 864e5 || atraso < -864e5) return falhar('A data da inspeção precisa ser de hoje ou dos últimos 30 dias.');
+  // KM / horímetro: obrigatório quando o equipamento tem medidor; não pode voltar para trás.
+  const tipo = equip.tipoMedidor || '', un = UNID[tipo] || '';
+  const valor = lerNum(v('kmHr'));
+  if (Number.isNaN(valor)) { $('#kmHr').focus(); return falhar('O KM / horímetro precisa ser um número.'); }
+  if (tipo && valor == null) { $('#kmHr').focus(); return falhar('Informe o ' + (tipo === 'HR' ? 'horímetro' : 'KM') + ' atual do equipamento.'); }
+  const ant = leituraAtual(equip);
+  let rodado = null;
+  if (valor != null && ant) {
+    rodado = Math.round((valor - ant.valor) * 10) / 10;
+    if (rodado < 0) { $('#kmHr').focus(); return falhar('O valor informado (' + fmtNum(valor) + ' ' + un + ') é menor que a última leitura (' + fmtNum(ant.valor) + ' ' + un + '). Confira o painel ou peça ao gestor para corrigir o cadastro.'); }
+    const limite = tipo === 'HR' ? 300 : 5000;
+    if (rodado > limite && !confirm('Desde a última leitura foram ' + fmtNum(rodado) + ' ' + un + '. Está certo?')) { $('#kmHr').focus(); return; }
+  }
+
   const inspId = equip.id + '_' + dataInspecao;
   if (await checklistExiste(inspId)) {
     return falhar('Já existe um checklist do equipamento ' + placa + ' em ' + fmtData(dataInspecao) + '. Se precisar corrigir, fale com o gestor.');
@@ -417,12 +462,19 @@ async function enviarChecklist() {
 
   const r = registrarChecklist(inspId, {
     dataInspecao, placaId: equip.id, equipamento: v('equipamento'), placa,
-    kmHr: v('kmHr'), avaliador: v('avaliador'), equipe: v('equipe'), cabine: v('cabine'), respostas: lista,
+    kmHr: valor == null ? '' : fmtNum(valor) + (un ? ' ' + un : ''), kmHrValor: valor, kmHrTipo: tipo, kmHrAnterior: ant ? ant.valor : null, kmHrRodado: rodado,
+    avaliador: v('avaliador'), equipe: v('equipe'), cabine: v('cabine'), respostas: lista,
   });
+
+  // Atualiza a leitura do cadastro em gravação separada: se falhar, o checklist não é afetado.
+  if (valor != null && (!ant || valor >= ant.valor)) {
+    updateDoc(doc(db, 'equipamentos', equip.id), { medidorAtual: valor, medidorEm: serverTimestamp(), medidorPor: S.user.uid }).catch(() => {});
+  }
 
   const ok = $('#okMsg'); ok.hidden = false;
   ok.innerHTML = '<b>Checklist ' + esc(r.codigo) + (navigator.onLine ? ' registrado.' : ' salvo no aparelho.</b> Será enviado sozinho quando houver internet.<b>') +
     '</b> Liberado para atividades: <b>' + r.liberado + '</b>. ' +
+    (rodado != null ? 'Rodou <b>' + fmtNum(rodado) + ' ' + un + '</b> desde a última conferência. ' : '') +
     (r.reqs.length ? r.reqs.length + ' requerimento(s) de OS: ' + r.reqs.map(q => esc(q.codigo) + (q.novo ? '' : ' (somado a um já aberto)')).join(', ') + '.' : 'Nenhuma divergência.');
   limparFormulario();
   toast(navigator.onLine ? 'Checklist registrado' : 'Salvo offline. Envio automático quando conectar.');
@@ -496,6 +548,7 @@ function registrarChecklist(inspId, d) {
 
 function limparFormulario() {
   ['placa', 'equipamento', 'kmHr', 'equipe'].forEach(id => { $('#' + id).value = ''; });
+  mostrarMedidor();
   $('#cabine').value = '';
   $('#dataInspecao').value = hojeISO();
   Object.keys(respostas).forEach(k => delete respostas[k]);
@@ -710,6 +763,7 @@ function renderInsp() {
       '<td class="mono">' + esc(r.placa) + '</td>' +
       '<td>' + esc(r.equipamento) + '</td>' +
       '<td>' + esc(r.avaliador) + '</td>' +
+      '<td class="r nw mono">' + (esc(r.kmHr) || '<span class="dim">—</span>') + (r.kmHrRodado != null ? ' <span class="dim">(+' + fmtNum(r.kmHrRodado) + ')</span>' : '') + '</td>' +
       '<td class="r mono">' + (c.OK || 0) + '</td>' +
       '<td class="r mono"' + (c.MU ? ' style="color:var(--accent)"' : '') + '>' + (c.MU || 0) + '</td>' +
       '<td class="r mono"' + (c.PR ? ' style="color:var(--warn)"' : '') + '>' + (c.PR || 0) + '</td>' +
@@ -718,7 +772,7 @@ function renderInsp() {
       '<td class="dim">' + (esc((r.requerimentos || []).join(', ')) || '—') + '</td>' +
     '</tr>';
   }), maisInsp)
-    : (paginar('insp', [], maisInsp), '') + '<tr><td colspan="12"><div class="empty"><h3>Nenhuma inspeção ainda</h3><p>Os checklists registrados aparecem aqui.</p></div></td></tr>';
+    : (paginar('insp', [], maisInsp), '') + '<tr><td colspan="13"><div class="empty"><h3>Nenhuma inspeção ainda</h3><p>Os checklists registrados aparecem aqui.</p></div></td></tr>';
 }
 
 // ---------- Cadastros (gestor) ----------
@@ -726,8 +780,9 @@ function renderCadastros() {
   if (!gestor()) return;
   $('#eqTbody').innerHTML = S.equip.length ? S.equip.map(e =>
     '<tr><td class="mono">' + esc(e.placa) + '</td><td>' + esc(e.equipamento) + '</td><td>' + esc(e.equipe) + '</td><td>' + esc(e.cabine) + '</td>' +
-    '<td class="r"><button class="btn sm" data-del-eq="' + esc(e.id) + '">Remover</button></td></tr>').join('')
-    : '<tr><td colspan="5" class="dim">Nenhum equipamento cadastrado.</td></tr>';
+    '<td class="r mono">' + (() => { const a = leituraAtual(e); return a ? fmtNum(a.valor) + ' ' + (UNID[e.tipoMedidor] || '') : '<span class="dim">—</span>'; })() + '</td>' +
+    '<td class="r nw"><button class="btn sm" data-edit-eq="' + esc(e.id) + '">Editar</button> <button class="btn sm" data-del-eq="' + esc(e.id) + '">Remover</button></td></tr>').join('')
+    : '<tr><td colspan="6" class="dim">Nenhum equipamento cadastrado.</td></tr>';
   const criticos = new Set(S.cfg.criticos || []), inativos = new Set(S.cfg.inativos || []);
   const livres = MAX_ITEM - ultimoNumero();
   $('#novoItemInfo').textContent = livres > 0 ? 'Ainda cabem ' + livres + ' item(ns) novo(s).' : 'Limite de itens novos atingido. Desative os que não usa mais.';
@@ -748,12 +803,23 @@ $('#formEq').addEventListener('submit', e => {
   e.preventDefault();
   const placa = $('#eqPlaca').value.trim().toUpperCase();
   if (!placa) return;
-  setDoc(doc(db, 'equipamentos', idPlaca(placa)), {
-    placa, equipamento: $('#eqNome').value.trim(), equipe: $('#eqEquipe').value.trim(), cabine: $('#eqCabine').value,
-  }).catch(ex => toast(traduzErro(ex), true));
-  e.target.reset();
+  const leitura = lerNum($('#eqMedidor').value);
+  if (Number.isNaN(leitura)) { toast('O KM / horímetro atual precisa ser um número.', true); return; }
+  const dados = { placa, equipamento: $('#eqNome').value.trim(), equipe: $('#eqEquipe').value.trim(), cabine: $('#eqCabine').value, tipoMedidor: $('#eqTipo').value };
+  // O gestor pode corrigir a leitura para qualquer valor; vazio mantém a atual.
+  if (leitura != null) Object.assign(dados, { medidorAtual: leitura, medidorEm: serverTimestamp(), medidorPor: S.user.uid });
+  setDoc(doc(db, 'equipamentos', idPlaca(placa)), dados, { merge: true }).then(() => toast('Equipamento salvo')).catch(ex => toast(traduzErro(ex), true));
+  e.target.reset(); $('#eqBtn').textContent = 'Adicionar';
 });
 $('#eqTbody').addEventListener('click', e => {
+  const ed = e.target.closest('[data-edit-eq]');
+  const eq = ed && S.equip.find(x => x.id === ed.dataset.editEq);
+  if (eq) {
+    $('#eqPlaca').value = eq.placa || ''; $('#eqNome').value = eq.equipamento || ''; $('#eqEquipe').value = eq.equipe || '';
+    $('#eqCabine').value = eq.cabine || ''; $('#eqTipo').value = eq.tipoMedidor || '';
+    const a = leituraAtual(eq); $('#eqMedidor').value = a ? String(a.valor).replace('.', ',') : '';
+    $('#eqBtn').textContent = 'Salvar'; $('#eqPlaca').focus(); return;
+  }
   const b = e.target.closest('[data-del-eq]');
   if (b && confirm('Remover este equipamento do cadastro?')) deleteDoc(doc(db, 'equipamentos', b.dataset.delEq)).catch(ex => toast(traduzErro(ex), true));
 });

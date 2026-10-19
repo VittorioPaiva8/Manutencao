@@ -290,7 +290,7 @@ textarea.inp{resize:vertical;min-height:62px}
         <div class="row">
           <div class="field"><label for="placa">Placa / prefixo *</label><input id="placa" class="inp" list="listaPlaca" autocomplete="off"><datalist id="listaPlaca"></datalist></div>
           <div class="field" style="flex:2 1 240px"><label for="equipamento">Equipamento *</label><input id="equipamento" class="inp" list="listaEquip" autocomplete="off" placeholder="Ex.: Caminhão basculante"><datalist id="listaEquip"></datalist></div>
-          <div class="field"><label for="kmHr">KM / HR</label><input id="kmHr" class="inp" inputmode="decimal"></div>
+          <div class="field"><label for="kmHr" id="kmHrLbl">KM / HR</label><input id="kmHr" class="inp" inputmode="decimal" autocomplete="off"><small class="dim" id="kmHrInfo" hidden></small></div>
         </div>
         <div class="row">
           <div class="field"><label for="dataInspecao">Data da inspeção</label><input type="date" id="dataInspecao" class="inp"></div>
@@ -353,7 +353,7 @@ textarea.inp{resize:vertical;min-height:62px}
       <div class="block-h"><h2>Histórico</h2><span id="inspCont"></span></div>
       <div class="filters"><input class="inp" id="iBusca" type="search" placeholder="Buscar código, placa, equipamento, avaliador"></div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Inspeção</th><th>Data</th><th>Dia</th><th>Placa</th><th>Equipamento</th><th>Avaliador</th><th class="r">OK</th><th class="r">MU</th><th class="r">PR</th><th class="r">NA</th><th>Liberado</th><th>Requerimentos</th></tr></thead>
+        <thead><tr><th>Inspeção</th><th>Data</th><th>Dia</th><th>Placa</th><th>Equipamento</th><th>Avaliador</th><th class="r">KM / HR</th><th class="r">OK</th><th class="r">MU</th><th class="r">PR</th><th class="r">NA</th><th>Liberado</th><th>Requerimentos</th></tr></thead>
         <tbody id="inspTbody"></tbody>
       </table></div>
       <div class="pager" id="pg-insp" hidden></div>
@@ -396,10 +396,12 @@ textarea.inp{resize:vertical;min-height:62px}
           <div class="field"><label for="eqNome">Equipamento</label><input id="eqNome" class="inp"></div>
           <div class="field"><label for="eqEquipe">Equipe</label><input id="eqEquipe" class="inp"></div>
           <div class="field"><label for="eqCabine">Cabine fechada</label><select id="eqCabine" class="inp"><option value="">—</option><option>SIM</option><option>NÃO</option></select></div>
-          <button class="btn dark" type="submit">Adicionar</button>
+          <div class="field"><label for="eqTipo">Medidor</label><select id="eqTipo" class="inp"><option value="">Sem medidor</option><option value="KM">KM</option><option value="HR">Horímetro</option></select></div>
+          <div class="field"><label for="eqMedidor">KM / horímetro atual</label><input id="eqMedidor" class="inp" inputmode="decimal" autocomplete="off"></div>
+          <button class="btn dark" type="submit" id="eqBtn">Adicionar</button>
         </form>
         <div class="tbl-wrap scroll"><table>
-          <thead><tr><th>Placa</th><th>Equipamento</th><th>Equipe</th><th>Cabine</th><th></th></tr></thead>
+          <thead><tr><th>Placa</th><th>Equipamento</th><th>Equipe</th><th>Cabine</th><th class="r">Atual</th><th></th></tr></thead>
           <tbody id="eqTbody"></tbody>
         </table></div>
       </div>
