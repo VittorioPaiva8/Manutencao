@@ -167,6 +167,12 @@ function traduzErro(ex) {
   return ex.message || String(ex);
 }
 $$('.btnSair').forEach(b => b.addEventListener('click', () => signOut(auth)));
+$('#btnSolicitar').addEventListener('click', () => {
+  const u = auth.currentUser; if (!u) return;
+  setDoc(doc(db, 'usuarios', u.uid), {
+    nome: u.displayName || u.email, email: u.email, papel: 'operador', ativo: false, criadoEm: serverTimestamp(),
+  }).then(() => toast('Pedido de acesso enviado ao gestor')).catch(ex => toast(traduzErro(ex), true));
+});
 
 onAuthStateChanged(auth, user => {
   S.subs.forEach(u => u()); S.subs = [];
@@ -179,6 +185,11 @@ onAuthStateChanged(auth, user => {
     if (!S.perfil || !S.perfil.ativo) {
       $('#aguardaEmail').textContent = user.email;
       if (!snap.exists() && snap.metadata.fromCache) { $('#loading').hidden = false; return; }
+      // Conta excluída pelo gestor: só volta para a fila se a pessoa pedir.
+      $('#btnSolicitar').hidden = snap.exists();
+      $('#txtAguarda').textContent = snap.exists()
+        ? ' foi criada. Peça ao gestor da manutenção para liberar seu acesso. Esta tela atualiza sozinha.'
+        : ' não tem mais acesso ao app. Se ainda precisa usar, solicite o acesso de novo.';
       mostrarTela('#telaAguardando');
       return;
     }
@@ -699,11 +710,18 @@ function renderUsuarios() {
     '<td><select class="inp" data-papel="' + esc(u.id) + '"' + (u.id === S.user.uid ? ' disabled' : '') + '>' +
       ['operador', 'gestor'].map(p => '<option value="' + p + '"' + (u.papel === p ? ' selected' : '') + '>' + (p === 'gestor' ? 'Gestor' : 'Operador') + '</option>').join('') + '</select></td>' +
     '<td><span class="pill s-' + (u.ativo ? 'sim' : 'nao') + '">' + (u.ativo ? 'Ativo' : 'Aguardando') + '</span></td>' +
-    '<td class="r">' + (u.id === S.user.uid ? '' : '<button class="btn sm' + (u.ativo ? '' : ' primary') + '" data-ativar="' + esc(u.id) + '" data-v="' + (!u.ativo) + '">' + (u.ativo ? 'Bloquear' : 'Aprovar') + '</button>') + '</td></tr>').join('');
+    '<td class="r nw">' + (u.id === S.user.uid ? '' :
+      '<button class="btn sm' + (u.ativo ? '' : ' primary') + '" data-ativar="' + esc(u.id) + '" data-v="' + (!u.ativo) + '">' + (u.ativo ? 'Bloquear' : 'Aprovar') + '</button> ' +
+      '<button class="btn sm" data-excluir="' + esc(u.id) + '" title="Remove a pessoa da lista e tira o acesso">Excluir</button>') + '</td></tr>').join('');
 }
 $('#usrTbody').addEventListener('click', e => {
   const b = e.target.closest('[data-ativar]');
   if (b) updateDoc(doc(db, 'usuarios', b.dataset.ativar), { ativo: b.dataset.v === 'true' }).catch(ex => toast(traduzErro(ex), true));
+  const x = e.target.closest('[data-excluir]');
+  const u = x && S.usuarios.find(v => v.id === x.dataset.excluir);
+  if (u && confirm('Excluir ' + (u.nome || u.email) + '?\n\nA pessoa perde o acesso e sai da lista. Os checklists que ela já fez continuam no histórico. Se tentar entrar de novo, aparece aqui como "Aguardando".')) {
+    deleteDoc(doc(db, 'usuarios', u.id)).then(() => toast('Usuário excluído')).catch(ex => toast(traduzErro(ex), true));
+  }
 });
 $('#usrTbody').addEventListener('change', e => {
   const s = e.target.closest('[data-papel]');
