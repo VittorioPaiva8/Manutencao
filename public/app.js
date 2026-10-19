@@ -517,6 +517,7 @@ function renderFinalizados() {
     kpi('Concluídos', concl.length, 'serviço realizado') +
     kpi('Cancelados', lista.length - concl.length, 'sem execução') +
     kpi('Tempo médio', media + (dias.length ? ' d' : ''), 'da abertura à conclusão');
+  renderGraficosFin(lista);
   $('#finCont').textContent = lista.length + ' requerimento(s)';
   $('#finTbody').innerHTML = lista.length ? lista.map(r => {
     const d = diasAteFechar(r);
@@ -536,6 +537,47 @@ function renderFinalizados() {
   }).join('')
     : '<tr><td colspan="11"><div class="empty"><h3>Nenhum requerimento finalizado</h3><p>Quando um requerimento for marcado como Concluído ou Cancelado, ele aparece aqui. Tente outro período.</p></div></td></tr>';
 }
+function renderGraficosFin(lista) {
+  const bloco = (titulo, extra, corpo) => '<div class="block"><div class="block-h"><h2>' + titulo + '</h2>' + (extra ? '<span>' + extra + '</span>' : '') + '</div><div class="block-b">' + corpo + '</div></div>';
+  const vazio = '<p class="hint">Sem dados no filtro atual.</p>';
+
+  // Últimos 6 meses (ignora o filtro de período para mostrar a tendência)
+  const meses = [];
+  for (let i = 5; i >= 0; i--) { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); meses.push({ ano: d.getFullYear(), mes: d.getMonth(), ok: 0, can: 0, d }); }
+  const st = $('#fStatus').value;
+  S.reqFinalizados.forEach(r => {
+    const f = paraData(r.fechadoEm); if (!f || (st && r.status !== st)) return;
+    const m = meses.find(x => x.ano === f.getFullYear() && x.mes === f.getMonth());
+    if (m) m[r.status === 'Concluído' ? 'ok' : 'can']++;
+  });
+  const maxM = Math.max(1, ...meses.map(m => m.ok + m.can));
+  const colunas = '<div class="cols">' + meses.map(m => {
+    const t = m.ok + m.can, hOk = m.ok / maxM * 100, hCan = m.can / maxM * 100;
+    return '<div class="col" title="' + m.ok + ' concluído(s), ' + m.can + ' cancelado(s)"><div class="col-bar">' +
+      (t ? '<b style="bottom:calc(' + (hOk + hCan) + '% + 2px)">' + t + '</b>' : '') +
+      (m.can ? '<span class="c-can" style="height:' + hCan + '%"></span>' : '') +
+      (m.ok ? '<span class="c-ok" style="height:' + hOk + '%"></span>' : '') +
+      '</div><small>' + m.d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') + '</small></div>';
+  }).join('') + '</div>';
+  const leg = '<div class="chart-leg"><span><i style="background:var(--ok)"></i>Concluídos</span><span><i style="background:#9A9A9A"></i>Cancelados</span></div>';
+
+  const ranking = (chave, rotulo, alt) => {
+    const cont = {};
+    lista.forEach(r => { const k = chave(r); if (k) cont[k] = (cont[k] || 0) + 1; });
+    const top = Object.entries(cont).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    if (!top.length) return vazio;
+    return '<div class="hbars">' + top.map(([k, v]) =>
+      '<div class="hbar"><span class="t" title="' + esc(k) + '">' + esc(rotulo(k)) + '</span><span class="v">' + v + '</span>' +
+      '<div class="track"><span' + (alt ? ' class="alt"' : '') + ' style="width:' + (v / top[0][1] * 100) + '%"></span></div></div>').join('') + '</div>';
+  };
+  const equipDe = {}; lista.forEach(r => { equipDe[r.placa] = r.equipamento; });
+
+  $('#finCharts').innerHTML =
+    bloco('Finalizados por mês', leg, colunas) +
+    bloco('Equipamentos com mais OS', 'no filtro', ranking(r => r.placa, k => k + (equipDe[k] ? ' · ' + equipDe[k] : ''), true)) +
+    bloco('Itens que mais dão problema', 'no filtro', ranking(r => r.itemNumero ? r.itemNumero + ' · ' + r.itemNome : '', k => k));
+}
+
 $('#finTbody').addEventListener('click', e => {
   const tr = e.target.closest('tr[data-id]');
   const r = tr && S.reqFinalizados.find(x => x.id === tr.dataset.id);

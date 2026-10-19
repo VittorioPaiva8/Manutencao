@@ -193,6 +193,28 @@ textarea.inp{resize:vertical;min-height:62px}
 .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
 .scroll{max-height:520px;overflow:auto}
+
+/* Gráficos (Finalizados) */
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.chart-leg{display:flex;gap:12px;font-size:11px;color:var(--muted);font-weight:600}
+.block-h .chart-leg span{opacity:1;color:#D0D0D0}
+.chart-leg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.cols{display:flex;align-items:flex-end;gap:10px;height:170px;padding-top:18px}
+.col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;height:100%}
+.col-bar{flex:1;width:100%;max-width:44px;display:flex;flex-direction:column;justify-content:flex-end;position:relative}
+.col-bar span{display:block;width:100%}
+.col-bar .c-ok{background:var(--ok);border-radius:4px 4px 0 0}
+.col-bar .c-can{background:#9A9A9A}
+.col-bar .c-can:last-child{border-radius:4px 4px 0 0}
+.col-bar b{position:absolute;left:0;right:0;text-align:center;font-size:11px;color:var(--fg-strong);font-variant-numeric:tabular-nums}
+.col small{font-size:11px;color:var(--muted);text-transform:capitalize;white-space:nowrap}
+.hbars{display:flex;flex-direction:column;gap:10px}
+.hbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:12px}
+.hbar .t{color:var(--fg-strong);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hbar .v{color:var(--muted);font-variant-numeric:tabular-nums;font-weight:600}
+.hbar .track{grid-column:1 / -1;height:8px;background:var(--info-soft);border-radius:999px;overflow:hidden}
+.hbar .track span{display:block;height:100%;background:var(--accent);border-radius:999px}
+.hbar .track span.alt{background:var(--fg-strong)}
 </style>
 </head>
 <body>
@@ -340,6 +362,7 @@ textarea.inp{resize:vertical;min-height:62px}
       <button type="button" class="btn sm" id="btnFinCsv">Exportar CSV</button>
     </div>
     <div class="kpis" id="finKpis"></div>
+    <div class="charts" id="finCharts"></div>
     <div class="block">
       <div class="block-h"><h2>Finalizados</h2><span id="finCont"></span></div>
       <div class="filters">
