@@ -239,7 +239,7 @@ function iniciarApp() {
   const ouvir = (q, fn) => S.subs.push(onSnapshot(q, { includeMetadataChanges: true }, fn, e => console.warn(e)));
 
   ouvir(doc(db, 'config', 'checklist'), snap => {
-    S.cfg = Object.assign({ criticos: [], inativos: [], extras: [] }, snap.exists() ? snap.data() : {});
+    S.cfg = Object.assign({ criticos: [], inativos: [], extras: [], removidos: [], nomes: {} }, snap.exists() ? snap.data() : {});
     montarItens(); renderCadastros();
   });
   ouvir(collection(db, 'equipamentos'), snap => {
@@ -299,11 +299,14 @@ function abrirAba(v) {
 // ---------- Checklist ----------
 /** Itens da revisão 003 mais os extras do gestor; os extras entram antes da liberação (item 50). */
 function todosItens() {
-  const criticos = new Set(S.cfg.criticos || []);
-  const padrao = ITENS_PADRAO.map((nome, i) => ({ numero: i + 1, nome, extra: false }));
+  const criticos = new Set(S.cfg.criticos || []), removidos = new Set(S.cfg.removidos || []), nomes = S.cfg.nomes || {};
+  // Itens originais podem ter o nome trocado (`nomes`) ou ser excluídos (`removidos`) pelo gestor.
+  const padrao = ITENS_PADRAO.map((nome, i) => ({ numero: i + 1, nome: nomes[i + 1] || nome, extra: false }));
   const extras = (S.cfg.extras || []).map(e => ({ numero: e.numero, nome: e.nome, extra: true }));
   const i = padrao.findIndex(it => it.numero === ITEM_LIBERACAO);
-  return [...padrao.slice(0, i), ...extras, ...padrao.slice(i)].map(it => ({ ...it, critico: criticos.has(it.numero) }));
+  return [...padrao.slice(0, i), ...extras, ...padrao.slice(i)]
+    .filter(it => !removidos.has(it.numero))
+    .map(it => ({ ...it, critico: criticos.has(it.numero) }));
 }
 function montarItens() {
   const inativos = new Set(S.cfg.inativos || []);
@@ -734,8 +737,11 @@ function renderCadastros() {
     return '<tr><td class="dim">' + n + '</td><td>' + esc(it.nome) + (it.extra ? ' <span class="tag-pend" style="color:var(--ok);border-color:var(--ok)">novo</span>' : '') + '</td>' +
       '<td><label class="chk"><input type="checkbox" data-crit="' + n + '"' + (criticos.has(n) ? ' checked' : '') + '> crítico</label></td>' +
       '<td><label class="chk"><input type="checkbox" data-ativo="' + n + '"' + (inativos.has(n) ? '' : ' checked') + '> ativo</label></td>' +
-      '<td class="r nw">' + (it.extra ? '<button type="button" class="btn sm" data-edit-item="' + n + '">Editar</button> <button type="button" class="btn sm" data-del-item="' + n + '">Excluir</button>' : '') + '</td></tr>';
+      '<td class="r nw"><button type="button" class="btn sm" data-edit-item="' + n + '">Editar</button> <button type="button" class="btn sm" data-del-item="' + n + '">Excluir</button></td></tr>';
   }).join('');
+  const nRem = (S.cfg.removidos || []).length;
+  $('#restaurarItens').hidden = !nRem;
+  $('#restaurarItens').textContent = 'Restaurar ' + nRem + ' item(ns) original(is) excluído(s)';
 }
 
 $('#formEq').addEventListener('submit', e => {
@@ -760,26 +766,32 @@ $('#cfgItens').addEventListener('click', async e => {
   const ed = e.target.closest('[data-edit-item]'), del = e.target.closest('[data-del-item]');
   if (!ed && !del) return;
   const n = Number((ed || del).dataset.editItem || (ed || del).dataset.delItem);
-  const extras = S.cfg.extras || [], item = extras.find(x => x.numero === n);
+  const extras = S.cfg.extras || [], item = todosItens().find(x => x.numero === n);
   if (!item) return;
+  const salvar = (dados, msg) => setDoc(doc(db, 'config', 'checklist'), dados, { merge: true }).then(() => toast(msg)).catch(ex => toast(traduzErro(ex), true));
   if (ed) {
     const nome = (prompt('Novo nome do item ' + n + ':', item.nome) || '').trim().toUpperCase().replace(/\s+/g, ' ');
     if (!nome || nome === item.nome) return;
     if (todosItens().some(it => it.nome === nome)) { toast('Já existe um item com esse nome.', true); return; }
-    setDoc(doc(db, 'config', 'checklist'), { extras: extras.map(x => x.numero === n ? { numero: n, nome } : x) }, { merge: true })
-      .then(() => toast('Item ' + n + ' renomeado')).catch(ex => toast(traduzErro(ex), true));
+    if (item.extra) salvar({ extras: extras.map(x => x.numero === n ? { numero: n, nome } : x) }, 'Item ' + n + ' renomeado');
+    else salvar({ nomes: { ...(S.cfg.nomes || {}), [n]: nome } }, 'Item ' + n + ' renomeado');
     return;
   }
-  if (!confirm('Excluir o item ' + n + ' - ' + item.nome + '?\n\nEle sai do checklist. Checklists e requerimentos antigos continuam com o registro dele.')) return;
+  const aviso = n === ITEM_LIBERACAO ? '\n\nAtenção: este item decide a liberação para atividades. Sem ele, só MU ou item crítico com divergência bloqueiam o equipamento.' : '';
+  if (!confirm('Excluir o item ' + n + ' - ' + item.nome + '?\n\nEle sai do checklist. Checklists e requerimentos antigos continuam com o registro dele.' + aviso)) return;
+  const limpar = { criticos: (S.cfg.criticos || []).filter(x => x !== n), inativos: (S.cfg.inativos || []).filter(x => x !== n) };
+  if (!item.extra) { salvar({ ...limpar, removidos: [...new Set([...(S.cfg.removidos || []), n])] }, 'Item ' + n + ' excluído'); return; }
   // Se o item já gerou requerimento, o número fica reservado para não misturar o histórico.
   let usado = true;
   try { usado = !(await getDocs(query(collection(db, 'requerimentos'), where('itemNumero', '==', n), limit(1)))).empty; } catch (ex) { /* offline: reserva por segurança */ }
-  setDoc(doc(db, 'config', 'checklist'), {
-    extras: extras.filter(x => x.numero !== n),
-    criticos: (S.cfg.criticos || []).filter(x => x !== n),
-    inativos: (S.cfg.inativos || []).filter(x => x !== n),
+  salvar({
+    ...limpar, extras: extras.filter(x => x.numero !== n),
     retirados: usado ? [...new Set([...(S.cfg.retirados || []), n])] : (S.cfg.retirados || []),
-  }, { merge: true }).then(() => toast('Item ' + n + ' excluído')).catch(ex => toast(traduzErro(ex), true));
+  }, 'Item ' + n + ' excluído');
+});
+$('#restaurarItens').addEventListener('click', () => {
+  setDoc(doc(db, 'config', 'checklist'), { removidos: [] }, { merge: true })
+    .then(() => toast('Itens originais restaurados')).catch(ex => toast(traduzErro(ex), true));
 });
 $('#formItem').addEventListener('submit', e => {
   e.preventDefault();
