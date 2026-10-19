@@ -716,7 +716,7 @@ function proximaOS(ignorarId) {
   let melhor = null;
   [...S.reqAbertos, ...S.reqRecentes, ...S.reqFinalizados].forEach(q => {
     if (q.id === ignorarId) return;
-    const m = String(q.numeroOS || '').trim().match(/^(.*?)(\d+)(\D*)$/);
+    const m = String(q.numeroOS || '').trim().match(/^(\D*)(\d+)(.*)$/);
     if (m && (!melhor || Number(m[2]) > melhor.n)) melhor = { n: Number(m[2]), pre: m[1], dig: m[2].length, suf: m[3] };
   });
   if (!melhor) return '1';
