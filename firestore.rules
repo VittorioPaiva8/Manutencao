@@ -1,0 +1,98 @@
+rules_version = '2';
+
+// Check List de Averiguação: regras de acesso do Firestore.
+// Papéis (coleção usuarios/{uid}): "operador" registra checklists; "gestor" trata
+// requerimentos, aprova usuários e mantém os cadastros.
+//
+// Proteção contra envio em massa:
+// - inspeção só para equipamento cadastrado, com ID fixo "<placa>_<data>": um checklist
+//   por equipamento por dia, e a data precisa estar entre 30 dias atrás e amanhã;
+// - requerimento só nasce no mesmo envio de uma inspeção nova, com ID "<inspeção>_<item>":
+//   no máximo um por item do checklist;
+// - somar ocorrência num requerimento aberto também exige uma inspeção nova no mesmo envio.
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function logado() { return request.auth != null; }
+    function caminho(col, id) { return /databases/$(db)/documents/$(col)/$(id); }
+    function perfil() { return get(caminho('usuarios', request.auth.uid)).data; }
+    function ativo() {
+      return logado()
+        && exists(caminho('usuarios', request.auth.uid))
+        && perfil().ativo == true;
+    }
+    function gestor() { return ativo() && perfil().papel == 'gestor'; }
+    function so(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos); }
+
+    function dataPermitida(s) {
+      let p = s.split('-');
+      let d = timestamp.date(int(p[0]), int(p[1]), int(p[2]));
+      return d > request.time - duration.value(31, 'd')
+        && d < request.time + duration.value(2, 'd');
+    }
+
+    // Inspeção criada agora, neste mesmo envio, pelo próprio usuário.
+    function inspecaoNovaDoUsuario(inspId) {
+      return inspId is string
+        && !exists(caminho('inspecoes', inspId))
+        && existsAfter(caminho('inspecoes', inspId))
+        && getAfter(caminho('inspecoes', inspId)).data.criadoPor == request.auth.uid;
+    }
+
+    match /usuarios/{uid} {
+      allow read: if logado() && (request.auth.uid == uid || gestor());
+      // Cadastro próprio entra sempre inativo e como operador; o gestor aprova.
+      allow create: if logado() && request.auth.uid == uid
+        && request.resource.data.ativo == false
+        && request.resource.data.papel == 'operador'
+        && request.resource.data.nome is string && request.resource.data.nome.size() <= 120;
+      allow update, delete: if gestor();
+    }
+
+    match /config/{doc} {
+      allow read: if ativo();
+      allow write: if gestor();
+    }
+
+    match /equipamentos/{id} {
+      allow read: if ativo();
+      allow write: if gestor();
+    }
+
+    match /inspecoes/{id} {
+      allow read: if ativo();
+      allow create: if ativo()
+        && request.resource.data.criadoPor == request.auth.uid
+        && request.resource.data.criadoEm == request.time
+        && request.resource.data.placaId is string
+        && request.resource.data.dataInspecao.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && id == request.resource.data.placaId + '_' + request.resource.data.dataInspecao
+        && exists(caminho('equipamentos', request.resource.data.placaId))
+        && dataPermitida(request.resource.data.dataInspecao)
+        && request.resource.data.respostas is list
+        && request.resource.data.respostas.size() <= 60;
+      allow update, delete: if gestor();
+    }
+
+    match /requerimentos/{id} {
+      allow read: if ativo();
+      allow create: if ativo()
+        && request.resource.data.criadoPor == request.auth.uid
+        && request.resource.data.status == 'Aberto'
+        && request.resource.data.ocorrencias == 1
+        && request.resource.data.itemNumero is int
+        && request.resource.data.itemNumero >= 1 && request.resource.data.itemNumero <= 60
+        && id == request.resource.data.inspecaoId + '_' + string(request.resource.data.itemNumero)
+        && request.resource.data.descricao is string && request.resource.data.descricao.size() <= 2000
+        && inspecaoNovaDoUsuario(request.resource.data.inspecaoId);
+      // Operador só pode somar uma ocorrência por inspeção nova a um requerimento já aberto.
+      allow update: if gestor()
+        || (ativo()
+          && so(['ocorrencias', 'ultimaOcorrencia', 'descricao', 'prioridade', 'classificacao', 'inspecoes', 'ultimaInspecao'])
+          && request.resource.data.ocorrencias == resource.data.ocorrencias + 1
+          && request.resource.data.descricao.size() <= 20000
+          && inspecaoNovaDoUsuario(request.resource.data.ultimaInspecao));
+      allow delete: if gestor();
+    }
+  }
+}

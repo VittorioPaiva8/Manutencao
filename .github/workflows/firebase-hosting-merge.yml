@@ -1,0 +1,19 @@
+# Publica o app no Firebase Hosting a cada mudança na branch main.
+name: Publicar no Firebase (main)
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Nova versão do service worker a cada publicação, para os celulares baixarem a tela nova.
+      - name: Versão do service worker
+        run: sed -i "s/const VERSAO = '[^']*'/const VERSAO = 'chk-${GITHUB_SHA::7}'/" public/sw.js
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MANUTENCAO_C2F1F }}
+          channelId: live
+          projectId: manutencao-c2f1f
