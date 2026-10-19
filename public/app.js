@@ -88,7 +88,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const S = {
   user: null, perfil: null, itens: [], cfg: { criticos: [], inativos: [] },
-  equip: [], reqAbertos: [], reqRecentes: [], reqFinalizados: [], insp: [], usuarios: [], pendentes: 0, subs: [],
+  equip: [], reqAbertos: [], reqRecentes: [], reqFinalizados: [], minhas: [], insp: [], usuarios: [], pendentes: 0, subs: [],
 };
 const respostas = {};
 
@@ -101,6 +101,7 @@ const fmt = v => {
 };
 const fmtData = iso => iso ? iso.split('-').reverse().join('/') : '';
 const gestor = () => S.perfil && S.perfil.papel === 'gestor';
+const tecnico = () => S.perfil && S.perfil.papel === 'tecnico';
 const PAPEIS = { operador: 'Operador', tecnico: 'Técnico', gestor: 'Gestor' };
 const idPlaca = placa => String(placa).trim().toUpperCase().replace(/[^A-Z0-9]/g, '-');
 function codigo(prefixo) {
@@ -243,6 +244,11 @@ function iniciarApp() {
   mostrarTela('#telaApp');
   $('#quem').innerHTML = '<b>' + esc(S.perfil.nome) + '</b><span>' + (PAPEIS[S.perfil.papel] || 'Operador') + '</span>';
   $$('.so-gestor').forEach(e => { e.hidden = !gestor(); });
+  $$('.so-tecnico').forEach(e => { e.hidden = !tecnico(); });
+  $$('.so-painel').forEach(e => { e.hidden = !gestor() && !tecnico(); });
+  // Se o cargo mudou e a aba aberta sumiu, volta para o checklist.
+  const aberta = $('.tab[aria-selected="true"]');
+  if (aberta && aberta.hidden) abrirAba('check');
   if (!$('#avaliador').value) $('#avaliador').value = S.perfil.nome || '';
   if (!$('#dataInspecao').value) $('#dataInspecao').value = hojeISO();
   montarItens();
@@ -258,12 +264,19 @@ function iniciarApp() {
     S.equip = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.placa).localeCompare(b.placa));
     $('#listaPlaca').innerHTML = S.equip.map(e => '<option value="' + esc(e.placa) + '">' + esc(e.equipamento) + '</option>').join('');
     $('#listaEquip').innerHTML = [...new Set(S.equip.map(e => e.equipamento))].map(v => '<option value="' + esc(v) + '">').join('');
-    renderCadastros(); mostrarMedidor();
+    renderCadastros(); mostrarMedidor(); renderDia();
   });
   ouvir(query(collection(db, 'requerimentos'), where('status', 'in', STATUS_ABERTOS)), snap => {
     S.reqAbertos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderReq();
+    renderReq(); renderDia();
   });
+  if (tecnico()) {
+    ouvir(query(collection(db, 'requerimentos'), where('responsavelUid', '==', S.user.uid)), snap => {
+      S.minhas = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }))
+        .sort((a, b) => (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0));
+      renderMinhas();
+    });
+  }
   ouvirReqRecentes(); ouvirInsp();
   if (gestor()) {
     ouvir(collection(db, 'usuarios'), snap => {
@@ -296,7 +309,7 @@ function ouvirInsp() {
   ouvirLimitado('insp', query(collection(db, 'inspecoes'), orderBy('criadoEmLocal', 'desc'), limit(LIM.insp)), snap => {
     S.insp = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }));
     S.pendentes = S.insp.filter(i => i.pend && i.criadoPor === S.user.uid).length;
-    atualizarRede(); renderInsp(); renderCadastros(); mostrarMedidor();
+    atualizarRede(); renderInsp(); renderCadastros(); mostrarMedidor(); renderDia();
   });
 }
 
@@ -803,14 +816,44 @@ function proximaOS(ignorarId) {
   return melhor.pre + String(melhor.n + 1).padStart(melhor.dig, '0') + melhor.suf;
 }
 
-/** Responsável da OS: lista dos técnicos ativos (cadastrados na aba Usuários com o cargo Técnico). */
-function campoResponsavel(atual, pode) {
-  const tecnicos = S.usuarios.filter(u => u.papel === 'tecnico' && u.ativo).map(u => u.nome || u.email).sort((a, b) => a.localeCompare(b));
-  if (!pode) return '<input id="mResp" class="inp" value="' + esc(atual) + '" readonly>';
-  if (atual && !tecnicos.includes(atual)) tecnicos.unshift(atual);
-  if (!tecnicos.length) return '<input id="mResp" class="inp" value="' + esc(atual) + '" placeholder="Nenhum técnico cadastrado">';
+/** Responsável da OS: lista dos técnicos ativos (cadastrados na aba Usuários com o cargo Técnico). O valor é o uid. */
+function campoResponsavel(r, pode) {
+  if (!pode) return '<input id="mResp" class="inp" value="' + esc(r.responsavel) + '" readonly>';
+  const tecnicos = S.usuarios.filter(u => u.papel === 'tecnico' && u.ativo)
+    .map(u => ({ uid: u.id, nome: u.nome || u.email })).sort((a, b) => a.nome.localeCompare(b.nome));
+  const atualUid = r.responsavelUid || (tecnicos.find(t => t.nome === r.responsavel) || {}).uid || '';
+  // Responsável antigo (só nome, ou técnico que saiu): continua aparecendo para não ser apagado sem querer.
+  if (r.responsavel && !tecnicos.some(t => t.uid === atualUid)) tecnicos.unshift({ uid: 'nome:' + r.responsavel, nome: r.responsavel + ' (sem acesso de técnico)' });
+  if (!tecnicos.length) return '<input id="mResp" class="inp" value="' + esc(r.responsavel) + '" placeholder="Nenhum técnico cadastrado">';
+  const sel = atualUid || (r.responsavel ? 'nome:' + r.responsavel : '');
   return '<select id="mResp" class="inp"><option value="">Selecione</option>' +
-    tecnicos.map(t => '<option' + (t === atual ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select>';
+    tecnicos.map(t => '<option value="' + esc(t.uid) + '"' + (t.uid === sel ? ' selected' : '') + '>' + esc(t.nome) + '</option>').join('') + '</select>';
+}
+/** Lê o campo de responsável: { nome, uid }. */
+function lerResponsavel() {
+  const el = $('#mResp'), v = el.value.trim();
+  if (el.tagName !== 'SELECT') return { nome: v, uid: '' };
+  if (!v) return { nome: '', uid: '' };
+  if (v.startsWith('nome:')) return { nome: v.slice(5), uid: '' };
+  const u = S.usuarios.find(x => x.id === v);
+  return { nome: u ? (u.nome || u.email) : '', uid: v };
+}
+
+// ---------- Histórico da OS ----------
+// Cada mudança de tratamento entra em `historico` (lista no próprio requerimento): quem, quando e o que mudou.
+function htmlHistorico(r) {
+  const ev = [{ em: r.criadoEm || r.criadoEmLocal, por: r.avaliador, txt: 'Requerimento aberto pelo checklist ' + (r.inspecaoCodigo || '') }];
+  if ((r.ocorrencias || 1) > 1) ev.push({ em: r.ultimaOcorrencia, por: '', txt: 'Divergência repetida em outro checklist (' + r.ocorrencias + ' ocorrências no total)' });
+  (r.historico || []).forEach(h => {
+    const m = [];
+    if (h.de !== h.status) m.push('Status: ' + (h.de || '—') + ' → ' + h.status);
+    if (h.osAntes !== h.os) m.push('Nº da OS: ' + (h.os || '—'));
+    if (h.respAntes !== h.resp) m.push('Responsável: ' + (h.resp || '—'));
+    ev.push({ em: h.em, por: h.por, txt: m.join(' · ') || 'Observação', obs: h.obs });
+  });
+  ev.sort((a, b) => (paraData(a.em) || 0) - (paraData(b.em) || 0));
+  return '<ul class="hist">' + ev.map(e => '<li><b>' + esc(e.txt) + '</b><small>' + esc(fmt(e.em)) + (e.por ? ' · ' + esc(e.por) : '') + '</small>' +
+    (e.obs ? '<div class="h-obs">' + esc(e.obs) + '</div>' : '') + '</li>').join('') + '</ul>';
 }
 
 function abrirReq(r) {
@@ -819,6 +862,10 @@ function abrirReq(r) {
     ['Prioridade', r.prioridade], ['Avaliador', r.avaliador], ['Ocorrências', r.ocorrencias], ['Última ocorrência', fmt(r.ultimaOcorrencia)],
     ['Fechamento', fmt(r.fechadoEm)], ['Divergência', r.descricao]].filter(([, v]) => v !== '' && v != null);
   const pode = gestor();
+  // O técnico responsável muda o status da própria OS (não cancela, não troca número nem responsável).
+  const tec = !pode && tecnico() && r.responsavelUid === S.user.uid && r.status !== 'Cancelado';
+  const opcoes = tec ? ['Em análise', 'OS aberta', 'Concluído'].concat(['Em análise', 'OS aberta', 'Concluído'].includes(r.status) ? [] : [r.status]) : STATUS_REQ;
+  const edita = pode || tec;
   $('#modalRoot').innerHTML =
     '<div class="ov" id="ov"><div class="modal" role="dialog" aria-modal="true">' +
       '<div class="block-h"><h2>' + esc(r.codigo) + '</h2><button class="modal-x" id="mX" aria-label="Fechar">×</button></div>' +
@@ -826,27 +873,37 @@ function abrirReq(r) {
         '<p class="section-t">Fotos</p><div class="fotos" id="mFotos"><span class="dim">Carregando…</span></div>' +
         '<p class="section-t">Tratamento</p>' +
         '<div class="row">' +
-          '<div class="field"><label for="mStatus">Status</label><select id="mStatus" class="inp"' + (pode ? '' : ' disabled') + '>' + STATUS_REQ.map(s => '<option' + (s === r.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></div>' +
+          '<div class="field"><label for="mStatus">Status</label><select id="mStatus" class="inp"' + (edita ? '' : ' disabled') + '>' + opcoes.map(s => '<option' + (s === r.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></div>' +
           '<div class="field"><label for="mOS">Nº da OS</label><input id="mOS" class="inp" value="' + esc(r.numeroOS) + '"' + (pode ? '' : ' readonly') + '></div>' +
-          '<div class="field"><label for="mResp">Responsável (técnico)</label>' + campoResponsavel(r.responsavel, pode) + '</div>' +
-        '</div>' + (pode ? '' : '<p class="hint">Somente o gestor altera o tratamento.</p>') + '</div>' +
-      '<div class="modal-f"><button class="btn" id="mCancelar">' + (pode ? 'Cancelar' : 'Fechar') + '</button>' + (pode ? '<button class="btn primary" id="mSalvar">Salvar</button>' : '') + '</div>' +
+          '<div class="field"><label for="mResp">Responsável (técnico)</label>' + campoResponsavel(r, pode) + '</div>' +
+        '</div>' +
+        (edita ? '<div class="field" style="margin-top:10px"><label for="mObs">' + (tec ? 'Serviço realizado / observação' : 'Observação (opcional)') + '</label><textarea id="mObs" class="inp" maxlength="1000" rows="2" placeholder="Fica registrada no histórico"></textarea></div>'
+          : '<p class="hint">Somente o gestor ou o técnico responsável altera o tratamento.</p>') +
+        '<p class="section-t">Histórico</p>' + htmlHistorico(r) + '</div>' +
+      '<div class="modal-f"><button class="btn" id="mCancelar">' + (edita ? 'Cancelar' : 'Fechar') + '</button>' + (edita ? '<button class="btn primary" id="mSalvar">Salvar</button>' : '') + '</div>' +
     '</div></div>';
   const fechar = () => { $('#modalRoot').innerHTML = ''; };
   $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
   $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') fechar(); });
   carregarFotos([...new Set(r.inspecoes || [r.inspecaoId])].map(i => i + '_' + r.itemNumero), $('#mFotos'));
-  if (!pode) return;
+  if (!edita) return;
   // Ao marcar "OS aberta" com o campo vazio, já sugere o próximo número.
-  const sugerir = () => { if ($('#mStatus').value === 'OS aberta' && !$('#mOS').value.trim()) $('#mOS').value = proximaOS(r.id); };
+  const sugerir = () => { if (pode && $('#mStatus').value === 'OS aberta' && !$('#mOS').value.trim()) $('#mOS').value = proximaOS(r.id); };
   $('#mStatus').addEventListener('change', sugerir); sugerir();
   $('#mSalvar').onclick = () => {
-    const status = $('#mStatus').value;
+    const status = $('#mStatus').value, obs = $('#mObs').value.trim();
     const fechado = status === 'Concluído' || status === 'Cancelado';
-    updateDoc(doc(db, 'requerimentos', r.id), {
-      status, numeroOS: $('#mOS').value.trim(), responsavel: $('#mResp').value.trim(),
-      fechadoEm: fechado ? (r.fechadoEm || serverTimestamp()) : null,
-    }).catch(e => toast(traduzErro(e), true));
+    const os = pode ? $('#mOS').value.trim() : (r.numeroOS || '');
+    const resp = pode ? lerResponsavel() : { nome: r.responsavel || '', uid: r.responsavelUid || '' };
+    const mudou = status !== r.status || os !== (r.numeroOS || '') || resp.nome !== (r.responsavel || '');
+    if (!mudou && !obs) { fechar(); return; }
+    const upd = { status, fechadoEm: fechado ? (r.fechadoEm || serverTimestamp()) : null };
+    if (pode) Object.assign(upd, { numeroOS: os, responsavel: resp.nome, responsavelUid: resp.uid });
+    upd.historico = arrayUnion({
+      em: Date.now(), por: S.perfil.nome || S.user.email || '', uid: S.user.uid,
+      de: r.status, status, osAntes: r.numeroOS || '', os, respAntes: r.responsavel || '', resp: resp.nome, obs,
+    });
+    updateDoc(doc(db, 'requerimentos', r.id), upd).catch(e => toast(traduzErro(e), true));
     fechar();
     toast(navigator.onLine ? 'Requerimento atualizado' : 'Atualização salva offline');
   };
@@ -919,6 +976,168 @@ function renderInsp() {
   }), maisInsp)
     : (paginar('insp', [], maisInsp), '') + '<tr><td colspan="13"><div class="empty"><h3>Nenhuma inspeção ainda</h3><p>Os checklists registrados aparecem aqui.</p></div></td></tr>';
 }
+
+// ---------- Painel do dia (gestor e técnico) ----------
+['#dBusca', '#dFiltro'].forEach(s => $(s).addEventListener('input', renderDia));
+function renderDia() {
+  if (!gestor() && !tecnico()) return;
+  const hoje = hojeISO();
+  const linhas = S.equip.map(e => {
+    // S.insp vem do mais novo para o mais antigo.
+    const doEq = S.insp.filter(i => i.placaId === e.id);
+    const ult = doEq[0] || null, hj = doEq.find(i => i.dataInspecao === hoje) || null;
+    const os = S.reqAbertos.filter(q => q.placa === e.placa).length;
+    return { e, ult, hj, os, nao: ult && ult.liberado === 'NÃO' };
+  });
+  const feitos = linhas.filter(l => l.hj).length, nao = linhas.filter(l => l.nao).length;
+  const kpi = (lbl, val, sub, alert) => '<div class="kpi' + (alert ? ' alert' : '') + '"><span class="lbl">' + lbl + '</span><span class="val">' + val + '</span><span class="sub">' + sub + '</span></div>';
+  $('#diaKpis').innerHTML =
+    kpi('Equipamentos', linhas.length, 'cadastrados') +
+    kpi('Checklist hoje', feitos, 'de ' + linhas.length + ' feitos em ' + fmtData(hoje)) +
+    kpi('Sem checklist', linhas.length - feitos, 'ainda não conferidos hoje', linhas.length - feitos > 0) +
+    kpi('Não liberados', nao, 'pelo último checklist', nao > 0);
+  $('#diaBadge').hidden = !nao; $('#diaBadge').textContent = nao;
+  const q = $('#dBusca').value.trim().toLowerCase(), f = $('#dFiltro').value;
+  const ordem = l => (l.nao ? 0 : l.hj ? 2 : 1);
+  const lista = linhas.filter(l => (!f || (f === 'falta' && !l.hj) || (f === 'nao' && l.nao) || (f === 'os' && l.os)) &&
+    (!q || [l.e.placa, l.e.equipamento, l.e.equipe].join(' ').toLowerCase().includes(q)))
+    .sort((a, b) => ordem(a) - ordem(b) || String(a.e.placa).localeCompare(b.e.placa));
+  $('#diaCont').textContent = lista.length + ' equipamento(s)';
+  $('#diaTbody').innerHTML = lista.length ? lista.map(l => {
+    const a = leituraAtual(l.e);
+    return '<tr' + (l.ult ? ' class="click" data-insp="' + esc(l.ult.id) + '"' : '') + '>' +
+      '<td class="mono">' + esc(l.e.placa) + '</td><td>' + esc(l.e.equipamento) + '</td><td>' + (esc(l.e.equipe) || '<span class="dim">—</span>') + '</td>' +
+      '<td>' + (l.hj ? '<span class="pill s-sim">Feito</span>' + (l.hj.pend ? ' <span class="tag-pend">a enviar</span>' : '') : '<span class="pill s-nao">Falta</span>') + '</td>' +
+      '<td class="nw">' + (l.ult ? esc(fmtData(l.ult.dataInspecao)) + ' <span class="dim">' + esc(l.ult.avaliador) + '</span>' : '<span class="dim">Nenhum</span>') + '</td>' +
+      '<td>' + (l.ult ? '<span class="pill s-' + slug(l.ult.liberado) + '">' + esc(l.ult.liberado) + '</span>' : '<span class="dim">—</span>') + '</td>' +
+      '<td class="r mono"' + (l.os ? ' style="color:var(--accent)"' : '') + '>' + l.os + '</td>' +
+      '<td class="r mono">' + (a ? fmtNum(a.valor) + ' ' + (UNID[l.e.tipoMedidor] || '') : '<span class="dim">—</span>') + '</td></tr>';
+  }).join('') : '<tr><td colspan="8"><div class="empty"><h3>Nada por aqui</h3><p>' + (S.equip.length ? 'Nenhum equipamento neste filtro.' : 'Cadastre os equipamentos na aba Cadastros.') + '</p></div></td></tr>';
+}
+$('#diaTbody').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-insp]');
+  const r = tr && S.insp.find(x => x.id === tr.dataset.insp);
+  if (r) abrirInsp(r);
+});
+
+// ---------- Minhas OS (técnico) ----------
+$('#mnFiltro').addEventListener('input', renderMinhas);
+function renderMinhas() {
+  const abertas = S.minhas.filter(r => STATUS_ABERTOS.includes(r.status));
+  $('#minhasBadge').hidden = !abertas.length; $('#minhasBadge').textContent = abertas.length;
+  const ini = new Date(); ini.setDate(1); ini.setHours(0, 0, 0, 0);
+  const kpi = (lbl, val, sub, alert) => '<div class="kpi' + (alert ? ' alert' : '') + '"><span class="lbl">' + lbl + '</span><span class="val">' + val + '</span><span class="sub">' + sub + '</span></div>';
+  $('#minhasKpis').innerHTML =
+    kpi('Em aberto', abertas.length, 'comigo') +
+    kpi('Prioridade alta', abertas.filter(r => r.prioridade === 'ALTA').length, 'MU ou item crítico', true) +
+    kpi('Concluídas no mês', S.minhas.filter(r => r.status === 'Concluído' && (paraData(r.fechadoEm) || 0) >= ini).length, ini.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
+  const f = $('#mnFiltro').value;
+  const lista = S.minhas.filter(r => !f || (f === 'abertas' ? STATUS_ABERTOS.includes(r.status) : r.status === f))
+    .sort((a, b) => (a.prioridade === 'ALTA' ? 0 : 1) - (b.prioridade === 'ALTA' ? 0 : 1) || (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0));
+  $('#minhasCont').textContent = lista.length + ' OS';
+  $('#minhasTbody').innerHTML = lista.length ? lista.map(r =>
+    '<tr class="click" data-id="' + esc(r.id) + '">' +
+      '<td class="mono">' + esc(r.codigo) + (r.pend ? ' <span class="tag-pend">a enviar</span>' : '') + '</td>' +
+      '<td class="nw dim">' + esc(fmt(r.criadoEm || r.criadoEmLocal)) + '</td>' +
+      '<td class="mono">' + esc(r.placa) + '</td><td>' + esc(r.equipamento) + '</td>' +
+      '<td><span class="dim">' + esc(r.itemNumero) + '</span> ' + esc(r.itemNome) + '</td>' +
+      '<td><span class="prio-' + slug(r.prioridade) + '">' + esc(r.prioridade) + '</span></td>' +
+      '<td class="mono">' + (esc(r.numeroOS) || '<span class="dim">—</span>') + '</td>' +
+      '<td><span class="pill s-' + slug(r.status) + '">' + esc(r.status) + '</span></td></tr>').join('')
+    : '<tr><td colspan="8"><div class="empty"><h3>Nenhuma OS ' + (f === 'abertas' ? 'em aberto ' : '') + 'com você</h3><p>Quando o gestor te colocar como responsável de uma OS, ela aparece aqui.</p></div></td></tr>';
+}
+$('#minhasTbody').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-id]');
+  const r = tr && S.minhas.find(x => x.id === tr.dataset.id);
+  if (r) abrirReq(r);
+});
+
+// ---------- Backup em planilha (gestor) ----------
+// Gera um .xlsx no próprio navegador (zip sem compressão), sem biblioteca externa.
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zip(arquivos) {
+  const enc = new TextEncoder(), partes = [], central = [];
+  let pos = 0;
+  arquivos.forEach(([nome, texto]) => {
+    const n = enc.encode(nome), d = enc.encode(texto), crc = crc32(d);
+    const h = new DataView(new ArrayBuffer(30));
+    [[0, 0x04034b50, 4], [4, 20, 2], [6, 0x0800, 2], [8, 0, 2], [10, 0, 2], [12, 0x21, 2], [14, crc, 4], [18, d.length, 4], [22, d.length, 4], [26, n.length, 2], [28, 0, 2]]
+      .forEach(([o, v, t]) => t === 4 ? h.setUint32(o, v, true) : h.setUint16(o, v, true));
+    const c = new DataView(new ArrayBuffer(46));
+    [[0, 0x02014b50, 4], [4, 20, 2], [6, 20, 2], [8, 0x0800, 2], [10, 0, 2], [12, 0, 2], [14, 0x21, 2], [16, crc, 4], [20, d.length, 4], [24, d.length, 4],
+      [28, n.length, 2], [30, 0, 2], [32, 0, 2], [34, 0, 2], [36, 0, 2], [38, 0, 4], [42, pos, 4]]
+      .forEach(([o, v, t]) => t === 4 ? c.setUint32(o, v, true) : c.setUint16(o, v, true));
+    partes.push(h, n, d); central.push(c, n);
+    pos += 30 + n.length + d.length;
+  });
+  const tam = central.reduce((a, p) => a + p.byteLength, 0);
+  const fim = new DataView(new ArrayBuffer(22));
+  [[0, 0x06054b50, 4], [8, arquivos.length, 2], [10, arquivos.length, 2], [12, tam, 4], [16, pos, 4]]
+    .forEach(([o, v, t]) => t === 4 ? fim.setUint32(o, v, true) : fim.setUint16(o, v, true));
+  return new Blob([...partes, ...central, fim], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+function planilha(abas) {
+  const x = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+  const col = i => { let s = ''; for (i++; i; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; };
+  const celula = (v, ref, cab) => {
+    if (v == null || v === '') return '';
+    if (typeof v === 'number' && Number.isFinite(v)) return '<c r="' + ref + '"><v>' + v + '</v></c>';
+    return '<c r="' + ref + '" t="inlineStr"' + (cab ? ' s="1"' : '') + '><is><t xml:space="preserve">' + x(String(v).slice(0, 32000)) + '</t></is></c>';
+  };
+  const folha = linhas => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetData>' +
+    linhas.map((l, r) => '<row r="' + (r + 1) + '">' + l.map((v, c) => celula(v, col(c) + (r + 1), r === 0)).join('') + '</row>').join('') + '</sheetData></worksheet>';
+  const ns = 'http://schemas.openxmlformats.org/', rel = ns + 'officeDocument/2006/relationships';
+  return zip([
+    ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="' + ns + 'package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      abas.map((_, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') + '</Types>'],
+    ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="' + ns + 'package/2006/relationships"><Relationship Id="rId1" Type="' + rel + '/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ['xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="' + ns + 'spreadsheetml/2006/main" xmlns:r="' + rel + '"><sheets>' +
+      abas.map(([nome], i) => '<sheet name="' + x(nome) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join('') + '</sheets></workbook>'],
+    ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="' + ns + 'package/2006/relationships">' +
+      abas.map((_, i) => '<Relationship Id="rId' + (i + 1) + '" Type="' + rel + '/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+      '<Relationship Id="rId' + (abas.length + 1) + '" Type="' + rel + '/styles" Target="styles.xml"/></Relationships>'],
+    ['xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="' + ns + 'spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>' +
+      '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'],
+    ...abas.map(([, linhas], i) => ['xl/worksheets/sheet' + (i + 1) + '.xml', folha(linhas)]),
+  ]);
+}
+$('#btnBackup').addEventListener('click', async () => {
+  if (!navigator.onLine) { toast('O backup precisa de internet para baixar tudo do servidor.', true); return; }
+  const btn = $('#btnBackup'); btn.disabled = true; btn.textContent = 'Gerando backup…';
+  try {
+    const tudo = async col => (await getDocs(collection(db, col))).docs.map(d => ({ id: d.id, ...d.data() }));
+    const [equip, insp, reqs, usuarios] = await Promise.all(['equipamentos', 'inspecoes', 'requerimentos', 'usuarios'].map(tudo));
+    insp.sort((a, b) => (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0));
+    reqs.sort((a, b) => (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0));
+    const criticos = new Set(S.cfg.criticos || []), inativos = new Set(S.cfg.inativos || []);
+    const respostasLinhas = [], hist = [];
+    insp.forEach(i => (i.respostas || []).forEach(it => respostasLinhas.push([i.codigo, fmtData(i.dataInspecao), i.placa, it.numero, it.nome, it.status, it.obs, it.foto ? 'SIM' : ''])));
+    reqs.forEach(r => (r.historico || []).forEach(h => hist.push([r.codigo, r.placa, fmt(h.em), h.por, h.de, h.status, h.os, h.resp, h.obs])));
+    const blob = planilha([
+      ['Inspeções', [['Código', 'Data', 'Dia', 'Placa', 'Equipamento', 'Avaliador', 'Equipe', 'Cabine fechada', 'KM / HR', 'Rodou', 'OK', 'MU', 'PR', 'NA', 'Liberado', 'Requerimentos', 'Registrado em', 'Registrado por']]
+        .concat(insp.map(i => { const c = i.contagem || {}; return [i.codigo, fmtData(i.dataInspecao), i.diaSemana, i.placa, i.equipamento, i.avaliador, i.equipe, i.cabine, i.kmHrValor ?? i.kmHr, i.kmHrRodado, c.OK, c.MU, c.PR, c.NA, i.liberado, (i.requerimentos || []).join(', '), fmt(i.criadoEm || i.criadoEmLocal), i.criadoPorNome]; }))],
+      ['Itens das inspeções', [['Inspeção', 'Data', 'Placa', 'Nº', 'Item', 'Situação', 'Observação', 'Foto']].concat(respostasLinhas)],
+      ['Requerimentos', [['Código', 'Abertura', 'Placa', 'Equipamento', 'Nº item', 'Item', 'Classificação', 'Prioridade', 'Ocorrências', 'Status', 'Nº OS', 'Responsável', 'Fechamento', 'Divergência', 'Inspeção']]
+        .concat(reqs.map(r => [r.codigo, fmt(r.criadoEm || r.criadoEmLocal), r.placa, r.equipamento, r.itemNumero, r.itemNome, r.classificacao, r.prioridade, r.ocorrencias, r.status, r.numeroOS, r.responsavel, fmt(r.fechadoEm), r.descricao, r.inspecaoCodigo]))],
+      ['Histórico das OS', [['Requerimento', 'Placa', 'Quando', 'Quem', 'Status anterior', 'Status', 'Nº OS', 'Responsável', 'Observação']].concat(hist)],
+      ['Equipamentos', [['Placa', 'Equipamento', 'Equipe', 'Cabine fechada', 'Medidor', 'Leitura atual', 'Leitura em']]
+        .concat(equip.map(e => [e.placa, e.equipamento, e.equipe, e.cabine, e.tipoMedidor === 'HR' ? 'Horímetro' : e.tipoMedidor === 'KM' ? 'KM' : '', e.medidorAtual, fmt(e.medidorEm)]))],
+      ['Itens do checklist', [['Nº', 'Item', 'Crítico', 'Ativo', 'Adicionado']].concat(todosItens().map(it => [it.numero, it.nome, criticos.has(it.numero) ? 'SIM' : '', inativos.has(it.numero) ? 'NÃO' : 'SIM', it.extra ? 'SIM' : '']))],
+      ['Usuários', [['Nome', 'E-mail', 'Cargo', 'Situação']].concat(usuarios.map(u => [u.nome, u.email, PAPEIS[u.papel] || u.papel, u.ativo ? 'Ativo' : 'Aguardando']))],
+    ]);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'backup-checklist-' + hojeISO() + '.xlsx';
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    $('#backupInfo').textContent = 'Backup gerado: ' + insp.length + ' inspeções e ' + reqs.length + ' requerimentos.';
+    toast('Backup baixado');
+  } catch (ex) { toast('Não foi possível gerar o backup: ' + traduzErro(ex), true); }
+  finally { btn.disabled = false; btn.textContent = 'Baixar backup (Excel)'; }
+});
 
 // ---------- Cadastros (gestor) ----------
 function renderCadastros() {

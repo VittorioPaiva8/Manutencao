@@ -165,6 +165,10 @@ textarea.inp{resize:vertical;min-height:62px}
 .modal-x{background:none;border:0;color:#fff;font-size:20px;line-height:1;cursor:pointer;padding:2px 6px;opacity:.8}
 .modal-b{padding:16px;display:flex;flex-direction:column;gap:14px}
 .modal-f{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:13px}
+.hist li{border-left:3px solid var(--line);padding:2px 0 2px 10px}
+.hist li b{font-weight:600}.hist li small{display:block;color:var(--muted)}
+.hist li .h-obs{white-space:pre-wrap;margin-top:2px}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;margin:0}
 .kv dt{color:var(--muted)}
 .kv dd{margin:0;color:var(--fg-strong);font-weight:500;overflow-wrap:anywhere;white-space:pre-line}
@@ -285,6 +289,8 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
   </div>
   <nav class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" data-view="check" aria-selected="true">Novo checklist</button>
+    <button class="tab so-painel" role="tab" data-view="dia" aria-selected="false" hidden>Painel do dia <span class="badge" id="diaBadge" hidden>0</span></button>
+    <button class="tab so-tecnico" role="tab" data-view="minhas" aria-selected="false" hidden>Minhas OS <span class="badge" id="minhasBadge" hidden>0</span></button>
     <button class="tab" role="tab" data-view="req" aria-selected="false">Requerimentos OS <span class="badge" id="reqBadge" hidden>0</span></button>
     <button class="tab" role="tab" data-view="insp" aria-selected="false">Inspeções</button>
     <button class="tab so-gestor" role="tab" data-view="fin" aria-selected="false" hidden>Finalizados</button>
@@ -352,6 +358,37 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
     </div>
   </section>
 
+  <!-- PAINEL DO DIA (gestor e técnico) -->
+  <section class="view" id="v-dia" hidden>
+    <div class="page-h"><div><h2>Painel do dia</h2><p id="diaSub">Quais equipamentos já fizeram o checklist hoje e quais estão sem liberação. Clique em um equipamento com checklist para ver os itens.</p></div></div>
+    <div class="kpis" id="diaKpis"></div>
+    <div class="block">
+      <div class="block-h"><h2>Equipamentos</h2><span id="diaCont"></span></div>
+      <div class="filters">
+        <input class="inp" id="dBusca" type="search" placeholder="Buscar placa, equipamento, equipe">
+        <select class="inp" id="dFiltro"><option value="">Todos</option><option value="falta">Sem checklist hoje</option><option value="nao">Não liberados</option><option value="os">Com OS em aberto</option></select>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Placa</th><th>Equipamento</th><th>Equipe</th><th>Checklist hoje</th><th>Último checklist</th><th>Liberado</th><th class="r">OS em aberto</th><th class="r">KM / HR atual</th></tr></thead>
+        <tbody id="diaTbody"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- MINHAS OS (técnico) -->
+  <section class="view" id="v-minhas" hidden>
+    <div class="page-h"><div><h2>Minhas OS</h2><p>Requerimentos em que você é o técnico responsável. Clique em um para ver a divergência e as fotos, mudar o status e registrar o serviço feito.</p></div></div>
+    <div class="kpis" id="minhasKpis"></div>
+    <div class="block">
+      <div class="block-h"><h2>Minhas OS</h2><span id="minhasCont"></span></div>
+      <div class="filters"><select class="inp" id="mnFiltro"><option value="abertas">Em aberto</option><option value="">Todas</option><option value="Concluído">Concluídas</option></select></div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Requerimento</th><th>Abertura</th><th>Placa</th><th>Equipamento</th><th>Item</th><th>Prioridade</th><th>Nº OS</th><th>Status</th></tr></thead>
+        <tbody id="minhasTbody"></tbody>
+      </table></div>
+    </div>
+  </section>
+
   <!-- REQUERIMENTOS OS -->
   <section class="view" id="v-req" hidden>
     <div class="page-h"><div><h2>Requerimentos de OS</h2><p>Gerados a partir das divergências dos checklists. Clique em um requerimento para ver os detalhes; o gestor atualiza o status e informa o número da OS.</p></div></div>
@@ -412,7 +449,8 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
 
   <!-- CADASTROS (gestor) -->
   <section class="view" id="v-cad" hidden>
-    <div class="page-h"><div><h2>Cadastros</h2><p>Equipamentos da frota (preenchem o checklist pela placa) e itens críticos ou desativados.</p></div></div>
+    <div class="page-h"><div><h2>Cadastros</h2><p>Equipamentos da frota (preenchem o checklist pela placa) e itens críticos ou desativados.</p></div>
+      <div style="text-align:right"><button type="button" class="btn dark sm" id="btnBackup">Baixar backup (Excel)</button><p class="hint" id="backupInfo" style="margin-top:4px">Tudo do sistema numa planilha, exceto as fotos.</p></div></div>
     <div class="grid2">
       <div class="block">
         <div class="block-h"><h2>Equipamentos</h2></div>

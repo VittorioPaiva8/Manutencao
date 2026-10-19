@@ -1,8 +1,8 @@
 rules_version = '2';
 
 // Check List de Averiguação: regras de acesso do Firestore.
-// Papéis (coleção usuarios/{uid}): "operador" registra checklists; "gestor" trata
-// requerimentos, aprova usuários e mantém os cadastros.
+// Papéis (coleção usuarios/{uid}): "operador" registra checklists; "tecnico" também muda o
+// status das OS em que é o responsável; "gestor" trata requerimentos, aprova usuários e mantém os cadastros.
 //
 // Proteção contra envio em massa:
 // - inspeção só para equipamento cadastrado, com ID fixo "<placa>_<data>": um checklist
@@ -96,6 +96,24 @@ service cloud.firestore {
       allow delete: if gestor();
     }
 
+    // Técnico responsável pela OS: só muda o status (sem cancelar) e registra uma linha no histórico.
+    function tecnicoResponsavel() {
+      let novo = request.resource.data;
+      let hist = resource.data.get('historico', []);
+      return ativo() && perfil().papel == 'tecnico'
+        && resource.data.get('responsavelUid', '') == request.auth.uid
+        && resource.data.status != 'Cancelado'
+        && so(['status', 'fechadoEm', 'historico'])
+        && novo.status in ['Em análise', 'OS aberta', 'Concluído']
+        && (novo.status == 'Concluído'
+          ? (novo.fechadoEm == request.time || novo.fechadoEm == resource.data.fechadoEm)
+          : novo.fechadoEm == null)
+        && novo.historico is list
+        && novo.historico.size() == hist.size() + 1
+        && novo.historico[hist.size()].uid == request.auth.uid
+        && novo.historico[hist.size()].obs.size() <= 1000;
+    }
+
     match /requerimentos/{id} {
       allow read: if ativo();
       allow create: if ativo()
@@ -109,6 +127,7 @@ service cloud.firestore {
         && inspecaoNovaDoUsuario(request.resource.data.inspecaoId);
       // Operador só pode somar uma ocorrência por inspeção nova a um requerimento já aberto.
       allow update: if gestor()
+        || tecnicoResponsavel()
         || (ativo()
           && so(['ocorrencias', 'ultimaOcorrencia', 'descricao', 'prioridade', 'classificacao', 'inspecoes', 'ultimaInspecao'])
           && request.resource.data.ocorrencias == resource.data.ocorrencias + 1
