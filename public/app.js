@@ -100,6 +100,7 @@ const fmt = v => {
 };
 const fmtData = iso => iso ? iso.split('-').reverse().join('/') : '';
 const gestor = () => S.perfil && S.perfil.papel === 'gestor';
+const PAPEIS = { operador: 'Operador', tecnico: 'Técnico', gestor: 'Gestor' };
 const idPlaca = placa => String(placa).trim().toUpperCase().replace(/[^A-Z0-9]/g, '-');
 function codigo(prefixo) {
   const d = new Date();
@@ -229,7 +230,7 @@ onAuthStateChanged(auth, user => {
 // ---------------------------------------------------------------------------
 function iniciarApp() {
   mostrarTela('#telaApp');
-  $('#quem').innerHTML = '<b>' + esc(S.perfil.nome) + '</b><span>' + (gestor() ? 'Gestor' : 'Operador') + '</span>';
+  $('#quem').innerHTML = '<b>' + esc(S.perfil.nome) + '</b><span>' + (PAPEIS[S.perfil.papel] || 'Operador') + '</span>';
   $$('.so-gestor').forEach(e => { e.hidden = !gestor(); });
   if (!$('#avaliador').value) $('#avaliador').value = S.perfil.nome || '';
   if (!$('#dataInspecao').value) $('#dataInspecao').value = hojeISO();
@@ -723,6 +724,16 @@ function proximaOS(ignorarId) {
   return melhor.pre + String(melhor.n + 1).padStart(melhor.dig, '0') + melhor.suf;
 }
 
+/** Responsável da OS: lista dos técnicos ativos (cadastrados na aba Usuários com o cargo Técnico). */
+function campoResponsavel(atual, pode) {
+  const tecnicos = S.usuarios.filter(u => u.papel === 'tecnico' && u.ativo).map(u => u.nome || u.email).sort((a, b) => a.localeCompare(b));
+  if (!pode) return '<input id="mResp" class="inp" value="' + esc(atual) + '" readonly>';
+  if (atual && !tecnicos.includes(atual)) tecnicos.unshift(atual);
+  if (!tecnicos.length) return '<input id="mResp" class="inp" value="' + esc(atual) + '" placeholder="Nenhum técnico cadastrado">';
+  return '<select id="mResp" class="inp"><option value="">Selecione</option>' +
+    tecnicos.map(t => '<option' + (t === atual ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select>';
+}
+
 function abrirReq(r) {
   const campos = [['Abertura', fmt(r.criadoEm || r.criadoEmLocal)], ['Inspeção', r.inspecaoCodigo], ['Placa / prefixo', r.placa],
     ['Equipamento', r.equipamento], ['KM / HR', r.kmHr], ['Item', r.itemNumero + ' · ' + r.itemNome], ['Classificação', r.classificacao],
@@ -737,7 +748,7 @@ function abrirReq(r) {
         '<div class="row">' +
           '<div class="field"><label for="mStatus">Status</label><select id="mStatus" class="inp"' + (pode ? '' : ' disabled') + '>' + STATUS_REQ.map(s => '<option' + (s === r.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></div>' +
           '<div class="field"><label for="mOS">Nº da OS</label><input id="mOS" class="inp" value="' + esc(r.numeroOS) + '"' + (pode ? '' : ' readonly') + '></div>' +
-          '<div class="field"><label for="mResp">Responsável</label><input id="mResp" class="inp" value="' + esc(r.responsavel) + '"' + (pode ? '' : ' readonly') + '></div>' +
+          '<div class="field"><label for="mResp">Responsável (técnico)</label>' + campoResponsavel(r.responsavel, pode) + '</div>' +
         '</div>' + (pode ? '' : '<p class="hint">Somente o gestor altera o tratamento.</p>') + '</div>' +
       '<div class="modal-f"><button class="btn" id="mCancelar">' + (pode ? 'Cancelar' : 'Fechar') + '</button>' + (pode ? '<button class="btn primary" id="mSalvar">Salvar</button>' : '') + '</div>' +
     '</div></div>';
@@ -895,7 +906,7 @@ function renderUsuarios() {
   $('#usrTbody').innerHTML = lista.map(u =>
     '<tr><td><b>' + esc(u.nome) + '</b></td><td class="dim">' + esc(u.email) + '</td>' +
     '<td><select class="inp" data-papel="' + esc(u.id) + '"' + (u.id === S.user.uid ? ' disabled' : '') + '>' +
-      ['operador', 'gestor'].map(p => '<option value="' + p + '"' + (u.papel === p ? ' selected' : '') + '>' + (p === 'gestor' ? 'Gestor' : 'Operador') + '</option>').join('') + '</select></td>' +
+      Object.entries(PAPEIS).map(([p, nome]) => '<option value="' + p + '"' + (u.papel === p ? ' selected' : '') + '>' + nome + '</option>').join('') + '</select></td>' +
     '<td><span class="pill s-' + (u.ativo ? 'sim' : 'nao') + '">' + (u.ativo ? 'Ativo' : 'Aguardando') + '</span></td>' +
     '<td class="r nw">' + (u.id === S.user.uid ? '' :
       '<button class="btn sm' + (u.ativo ? '' : ' primary') + '" data-ativar="' + esc(u.id) + '" data-v="' + (!u.ativo) + '">' + (u.ativo ? 'Bloquear' : 'Aprovar') + '</button> ' +
