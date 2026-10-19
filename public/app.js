@@ -383,8 +383,8 @@ function mostrarMedidor() {
   const tipo = e && e.tipoMedidor;
   $('#kmHrLbl').textContent = tipo === 'HR' ? 'Horímetro atual (h) *' : tipo === 'KM' ? 'KM atual *' : 'KM / HR';
   const a = e && leituraAtual(e);
-  $('#kmHrInfo').textContent = a ? 'Última leitura: ' + fmtNum(a.valor) + ' ' + (UNID[tipo] || '') + (a.em ? ' em ' + fmt(a.em).slice(0, 10) : '') : '';
-  $('#kmHrInfo').hidden = !a;
+  // A última leitura fica como texto de fundo do campo e some quando a pessoa digita.
+  $('#kmHr').placeholder = a ? 'Último: ' + fmtNum(a.valor) + ' ' + (UNID[tipo] || '') + (a.em ? ' (' + fmt(a.em).slice(0, 5) + ')' : '') : '';
 }
 $('#placa').addEventListener('change', function () {
   const p = this.value.trim().toUpperCase();
