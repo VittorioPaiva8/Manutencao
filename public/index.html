@@ -193,6 +193,12 @@ textarea.inp{resize:vertical;min-height:62px}
 .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
 .scroll{max-height:520px;overflow:auto}
+.guia{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--bg)}
+.guia-i{display:flex;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.guia-i .lg{font-size:13px;min-width:36px;flex:none;text-align:center;padding:4px 6px;border-radius:6px}
+.guia-i b{display:block;font-size:13px;color:var(--fg-strong);line-height:1.25}
+.guia-i small{display:block;font-size:12px;color:var(--muted);line-height:1.3}
+.lg.crit-lg{background:var(--accent-soft);color:var(--accent)}
 .pager{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;border-top:1px solid var(--line);font-size:12px}
 .pager .actions{align-items:center}
 
@@ -306,8 +312,15 @@ textarea.inp{resize:vertical;min-height:62px}
         <h2>Itens do checklist</h2>
         <div class="legenda"><span class="lg OK">OK</span><span class="lg MU">MU</span><span class="lg PR">PR</span><span class="lg NA">NA</span></div>
       </div>
+      <div class="guia" aria-label="O que significa cada opção">
+        <div class="guia-i"><span class="lg OK">OK</span><div><b>Em ordem</b><small>Está funcionando bem</small></div></div>
+        <div class="guia-i"><span class="lg MU">MU</span><div><b>Manutenção urgente</b><small>Precisa consertar antes de usar</small></div></div>
+        <div class="guia-i"><span class="lg PR">PR</span><div><b>Programar revisão</b><small>Dá para usar, mas precisa ver depois</small></div></div>
+        <div class="guia-i"><span class="lg NA">NA</span><div><b>Não se aplica</b><small>O equipamento não tem esse item</small></div></div>
+        <div class="guia-i"><span class="lg crit-lg">(*)</span><div><b>Item crítico</b><small>Com problema, não pode trafegar nem operar</small></div></div>
+      </div>
       <div class="filters" style="justify-content:space-between;align-items:center">
-        <p class="hint">OK em ordem · MU manutenção urgente · PR programar revisão · NA não se aplica · <b style="color:var(--accent)">(*)</b> impede trafegar/operar</p>
+        <p class="hint">MU e PR pedem uma descrição do problema e abrem um pedido de OS.</p>
         <button type="button" class="btn sm" id="btnRestantesOk">Marcar restantes como OK</button>
       </div>
       <div id="itens"></div>
