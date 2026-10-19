@@ -1,10 +1,13 @@
-# Publica o app no Firebase Hosting a cada mudança na branch main.
+# Publica o app no Firebase Hosting a cada mudança na branch main, só se todos os testes passarem.
 name: Publicar no Firebase (main)
 on:
   push:
     branches: [main]
 jobs:
+  testes:
+    uses: ./.github/workflows/testes.yml
   deploy:
+    needs: testes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

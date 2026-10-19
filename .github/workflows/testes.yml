@@ -1,0 +1,35 @@
+# Roda todos os testes automáticos (tests/) no simulador do Firebase.
+# É chamado antes de cada publicação e roda em cada pull request: se algum teste falhar, nada é publicado.
+name: Testes
+on:
+  workflow_call:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # Os emuladores do Firebase precisam de Java.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Rodar os testes
+        run: npm test
+      - name: Relatório dos testes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorio-dos-testes
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
