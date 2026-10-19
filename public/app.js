@@ -711,6 +711,18 @@ $('#btnFinCsv').addEventListener('click', () => {
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 
+/** Próximo Nº de OS: o maior número já usado + 1, mantendo o formato (ex.: "OS-0012" vira "OS-0013"). */
+function proximaOS(ignorarId) {
+  let melhor = null;
+  [...S.reqAbertos, ...S.reqRecentes, ...S.reqFinalizados].forEach(q => {
+    if (q.id === ignorarId) return;
+    const m = String(q.numeroOS || '').trim().match(/^(.*?)(\d+)(\D*)$/);
+    if (m && (!melhor || Number(m[2]) > melhor.n)) melhor = { n: Number(m[2]), pre: m[1], dig: m[2].length, suf: m[3] };
+  });
+  if (!melhor) return '1';
+  return melhor.pre + String(melhor.n + 1).padStart(melhor.dig, '0') + melhor.suf;
+}
+
 function abrirReq(r) {
   const campos = [['Abertura', fmt(r.criadoEm || r.criadoEmLocal)], ['Inspeção', r.inspecaoCodigo], ['Placa / prefixo', r.placa],
     ['Equipamento', r.equipamento], ['KM / HR', r.kmHr], ['Item', r.itemNumero + ' · ' + r.itemNome], ['Classificação', r.classificacao],
@@ -733,6 +745,9 @@ function abrirReq(r) {
   $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
   $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') fechar(); });
   if (!pode) return;
+  // Ao marcar "OS aberta" com o campo vazio, já sugere o próximo número.
+  const sugerir = () => { if ($('#mStatus').value === 'OS aberta' && !$('#mOS').value.trim()) $('#mOS').value = proximaOS(r.id); };
+  $('#mStatus').addEventListener('change', sugerir); sugerir();
   $('#mSalvar').onclick = () => {
     const status = $('#mStatus').value;
     const fechado = status === 'Concluído' || status === 'Cancelado';
