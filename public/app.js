@@ -82,7 +82,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const S = {
   user: null, perfil: null, itens: [], cfg: { criticos: [], inativos: [] },
-  equip: [], reqAbertos: [], reqRecentes: [], insp: [], usuarios: [], pendentes: 0, subs: [],
+  equip: [], reqAbertos: [], reqRecentes: [], reqFinalizados: [], insp: [], usuarios: [], pendentes: 0, subs: [],
 };
 const respostas = {};
 
@@ -227,6 +227,12 @@ function iniciarApp() {
     ouvir(collection(db, 'usuarios'), snap => {
       S.usuarios = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       renderUsuarios();
+    });
+    // Ordenar só por fechadoEm dispensa índice composto; os abertos (fechadoEm nulo) ficam no fim e são filtrados.
+    ouvir(query(collection(db, 'requerimentos'), orderBy('fechadoEm', 'desc'), limit(1000)), snap => {
+      S.reqFinalizados = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }))
+        .filter(r => r.status === 'Concluído' || r.status === 'Cancelado');
+      renderFinalizados();
     });
   }
 }
@@ -478,6 +484,72 @@ $('#reqTbody').addEventListener('click', e => {
   if (!tr) return;
   const r = S.reqRecentes.find(x => x.id === tr.dataset.id) || S.reqAbertos.find(x => x.id === tr.dataset.id);
   if (r) abrirReq(r);
+});
+
+// ---------- Finalizados (gestor) ----------
+['#fBusca', '#fPeriodo', '#fStatus'].forEach(s => $(s).addEventListener('input', renderFinalizados));
+const paraData = v => v && v.toDate ? v.toDate() : (typeof v === 'number' ? new Date(v) : null);
+const diasAteFechar = r => {
+  const a = paraData(r.criadoEm || r.criadoEmLocal), f = paraData(r.fechadoEm);
+  return a && f ? Math.max(0, Math.round((f - a) / 86400000)) : null;
+};
+function filtrarFinalizados() {
+  const q = $('#fBusca').value.trim().toLowerCase(), st = $('#fStatus').value, per = $('#fPeriodo').value;
+  let ini = null;
+  if (per === 'mes') { ini = new Date(); ini.setDate(1); ini.setHours(0, 0, 0, 0); }
+  else if (per === 'ano') { ini = new Date(new Date().getFullYear(), 0, 1); }
+  else if (per) { ini = new Date(Date.now() - Number(per) * 86400000); }
+  return S.reqFinalizados.filter(r => {
+    const f = paraData(r.fechadoEm);
+    return (!st || r.status === st) && (!ini || (f && f >= ini)) &&
+      (!q || [r.codigo, r.placa, r.equipamento, r.itemNome, r.numeroOS, r.responsavel].join(' ').toLowerCase().includes(q));
+  });
+}
+function renderFinalizados() {
+  const lista = filtrarFinalizados();
+  const concl = lista.filter(r => r.status === 'Concluído');
+  const dias = concl.map(diasAteFechar).filter(d => d != null);
+  const media = dias.length ? (dias.reduce((a, b) => a + b, 0) / dias.length).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '—';
+  const kpi = (lbl, val, sub, alert) => '<div class="kpi' + (alert ? ' alert' : '') + '"><span class="lbl">' + lbl + '</span><span class="val">' + val + '</span><span class="sub">' + sub + '</span></div>';
+  const periodo = $('#fPeriodo').selectedOptions[0].textContent.toLowerCase();
+  $('#finKpis').innerHTML =
+    kpi('Finalizados', lista.length, periodo) +
+    kpi('Concluídos', concl.length, 'serviço realizado') +
+    kpi('Cancelados', lista.length - concl.length, 'sem execução') +
+    kpi('Tempo médio', media + (dias.length ? ' d' : ''), 'da abertura à conclusão');
+  $('#finCont').textContent = lista.length + ' requerimento(s)';
+  $('#finTbody').innerHTML = lista.length ? lista.map(r => {
+    const d = diasAteFechar(r);
+    return '<tr class="click" data-id="' + esc(r.id) + '">' +
+      '<td class="mono">' + esc(r.codigo) + (r.pend ? ' <span class="tag-pend">a enviar</span>' : '') + '</td>' +
+      '<td class="nw dim">' + esc(fmt(r.criadoEm || r.criadoEmLocal)) + '</td>' +
+      '<td class="nw">' + esc(fmt(r.fechadoEm)) + '</td>' +
+      '<td class="r mono">' + (d == null ? '<span class="dim">—</span>' : d) + '</td>' +
+      '<td class="mono">' + esc(r.placa) + '</td>' +
+      '<td>' + esc(r.equipamento) + '</td>' +
+      '<td><span class="dim">' + esc(r.itemNumero) + '</span> ' + esc(r.itemNome) + '</td>' +
+      '<td><span class="prio-' + slug(r.prioridade) + '">' + esc(r.prioridade) + '</span></td>' +
+      '<td class="mono">' + (esc(r.numeroOS) || '<span class="dim">—</span>') + '</td>' +
+      '<td>' + (esc(r.responsavel) || '<span class="dim">—</span>') + '</td>' +
+      '<td><span class="pill s-' + slug(r.status) + '">' + esc(r.status) + '</span></td>' +
+    '</tr>';
+  }).join('')
+    : '<tr><td colspan="11"><div class="empty"><h3>Nenhum requerimento finalizado</h3><p>Quando um requerimento for marcado como Concluído ou Cancelado, ele aparece aqui. Tente outro período.</p></div></td></tr>';
+}
+$('#finTbody').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-id]');
+  const r = tr && S.reqFinalizados.find(x => x.id === tr.dataset.id);
+  if (r) abrirReq(r);
+});
+$('#btnFinCsv').addEventListener('click', () => {
+  const cel = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const linhas = [['Requerimento', 'Abertura', 'Fechamento', 'Dias', 'Placa', 'Equipamento', 'Item', 'Classificação', 'Prioridade', 'Ocorrências', 'Nº OS', 'Responsável', 'Status', 'Divergência']]
+    .concat(filtrarFinalizados().map(r => [r.codigo, fmt(r.criadoEm || r.criadoEmLocal), fmt(r.fechadoEm), diasAteFechar(r), r.placa, r.equipamento,
+      r.itemNumero + ' - ' + r.itemNome, r.classificacao, r.prioridade, r.ocorrencias, r.numeroOS, r.responsavel, r.status, r.descricao]));
+  const blob = new Blob(['\ufeff' + linhas.map(l => l.map(cel).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'requerimentos-finalizados-' + hojeISO() + '.csv';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 
 function abrirReq(r) {

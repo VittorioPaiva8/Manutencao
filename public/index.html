@@ -244,6 +244,7 @@ textarea.inp{resize:vertical;min-height:62px}
     <button class="tab" role="tab" data-view="check" aria-selected="true">Novo checklist</button>
     <button class="tab" role="tab" data-view="req" aria-selected="false">Requerimentos OS <span class="badge" id="reqBadge" hidden>0</span></button>
     <button class="tab" role="tab" data-view="insp" aria-selected="false">Inspeções</button>
+    <button class="tab so-gestor" role="tab" data-view="fin" aria-selected="false" hidden>Finalizados</button>
     <button class="tab so-gestor" role="tab" data-view="cad" aria-selected="false" hidden>Cadastros</button>
     <button class="tab so-gestor" role="tab" data-view="usr" aria-selected="false" hidden>Usuários <span class="badge" id="usrBadge" hidden>0</span></button>
   </nav>
@@ -328,6 +329,29 @@ textarea.inp{resize:vertical;min-height:62px}
       <div class="tbl-wrap"><table>
         <thead><tr><th>Inspeção</th><th>Data</th><th>Dia</th><th>Placa</th><th>Equipamento</th><th>Avaliador</th><th class="r">OK</th><th class="r">MU</th><th class="r">PR</th><th class="r">NA</th><th>Liberado</th><th>Requerimentos</th></tr></thead>
         <tbody id="inspTbody"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- FINALIZADOS (gestor) -->
+  <section class="view" id="v-fin" hidden>
+    <div class="page-h">
+      <div><h2>Requerimentos finalizados</h2><p>Requerimentos concluídos ou cancelados, com a data de fechamento e o tempo que cada um levou. Clique em um para ver os detalhes ou reabrir.</p></div>
+      <button type="button" class="btn sm" id="btnFinCsv">Exportar CSV</button>
+    </div>
+    <div class="kpis" id="finKpis"></div>
+    <div class="block">
+      <div class="block-h"><h2>Finalizados</h2><span id="finCont"></span></div>
+      <div class="filters">
+        <input class="inp" id="fBusca" type="search" placeholder="Buscar código, placa, equipamento, item, OS, responsável">
+        <select class="inp" id="fPeriodo">
+          <option value="mes">Este mês</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="ano">Este ano</option><option value="">Todo o período</option>
+        </select>
+        <select class="inp" id="fStatus"><option value="">Concluídos e cancelados</option><option>Concluído</option><option>Cancelado</option></select>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Requerimento</th><th>Abertura</th><th>Fechamento</th><th class="r">Dias</th><th>Placa</th><th>Equipamento</th><th>Item</th><th>Prioridade</th><th>Nº OS</th><th>Responsável</th><th>Status</th></tr></thead>
+        <tbody id="finTbody"></tbody>
       </table></div>
     </div>
   </section>
