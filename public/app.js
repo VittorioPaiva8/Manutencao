@@ -242,7 +242,7 @@ onAuthStateChanged(auth, user => {
 // ---------------------------------------------------------------------------
 function iniciarApp() {
   mostrarTela('#telaApp');
-  $('#quem').innerHTML = '<b>' + esc(S.perfil.nome) + '</b><span>' + (PAPEIS[S.perfil.papel] || 'Operador') + '</span>';
+  $('#quem').innerHTML = $('#quemMenu').innerHTML = '<b>' + esc(S.perfil.nome) + '</b><span>' + (PAPEIS[S.perfil.papel] || 'Operador') + '</span>';
   $$('.so-gestor').forEach(e => { e.hidden = !gestor(); });
   $$('.so-tecnico').forEach(e => { e.hidden = !tecnico(); });
   $$('.so-painel').forEach(e => { e.hidden = !gestor() && !tecnico(); });
@@ -317,9 +317,30 @@ function ouvirInsp() {
 $$('.tab').forEach(t => t.addEventListener('click', () => abrirAba(t.dataset.view)));
 function abrirAba(v) {
   $$('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === v)));
+  const t = $('.tab[data-view="' + v + '"]');
+  $('#secAtual').textContent = t ? t.firstChild.textContent.trim() : '';
+  abrirMenu(false);
   $$('.view').forEach(s => { s.hidden = s.id !== 'v-' + v; });
   scrollTo({ top: 0 });
 }
+
+// ---------- Menu do celular ----------
+// Na tela estreita as abas ficam escondidas num menu que abre pelo botão do topo.
+function abrirMenu(aberto) {
+  $('header.top').classList.toggle('menu-aberto', aberto);
+  $('#btnMenu').setAttribute('aria-expanded', String(aberto));
+  $('#btnMenu').setAttribute('aria-label', aberto ? 'Fechar menu' : 'Abrir menu');
+  $('#menuFundo').hidden = !aberto;
+}
+$('#btnMenu').addEventListener('click', () => abrirMenu(!$('header.top').classList.contains('menu-aberto')));
+$('#menuFundo').addEventListener('click', () => abrirMenu(false));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') abrirMenu(false); });
+// O botão do menu mostra a soma dos avisos (números vermelhos) das abas visíveis.
+function somarAvisos() {
+  const n = $$('#tabs .tab:not([hidden]) .badge:not([hidden])').reduce((s, b) => s + (Number(b.textContent) || 0), 0);
+  $('#menuBadge').hidden = !n; $('#menuBadge').textContent = n;
+}
+new MutationObserver(somarAvisos).observe($('#tabs'), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
 
 // ---------- Checklist ----------
 /** Itens da revisão 003 mais os extras do gestor; os extras entram antes da liberação (item 50). */
@@ -1262,6 +1283,18 @@ $('#usrTbody').addEventListener('click', e => {
 $('#usrTbody').addEventListener('change', e => {
   const s = e.target.closest('[data-papel]');
   if (s) updateDoc(doc(db, 'usuarios', s.dataset.papel), { papel: s.value }).catch(ex => toast(traduzErro(ex), true));
+});
+
+// ---------- Tabelas no celular ----------
+// Na tela estreita cada linha vira um cartão; cada célula recebe o nome da sua coluna (data-l) para o CSS mostrar.
+$$('.tbl-wrap').forEach(w => {
+  const cab = w.querySelector('thead'), corpo = w.querySelector('tbody');
+  if (!cab || !corpo) return;
+  w.classList.add('cartoes');
+  const nomes = [...cab.querySelectorAll('th')].map(th => th.textContent.trim());
+  const rotular = () => corpo.querySelectorAll('tr').forEach(tr => [...tr.children].forEach((td, i) => { if (!td.hasAttribute('colspan')) td.dataset.l = nomes[i] || ''; }));
+  new MutationObserver(rotular).observe(corpo, { childList: true });
+  rotular();
 });
 
 // ---------- Service worker (abre sem internet) ----------

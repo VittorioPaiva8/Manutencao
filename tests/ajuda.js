@@ -137,6 +137,8 @@ async function entrar(page, conta) {
   await page.locator('#telaApp').waitFor();
 }
 async function aba(page, nome) {
+  // No celular as abas ficam dentro do menu.
+  if (await page.locator('#btnMenu').isVisible() && !(await page.locator('.tab[data-view="' + nome + '"]').isVisible())) await page.click('#btnMenu');
   await page.click('.tab[data-view="' + nome + '"]');
   await page.locator('#v-' + nome).waitFor();
 }

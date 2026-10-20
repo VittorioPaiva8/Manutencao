@@ -16,6 +16,7 @@ Nada toca nos dados reais.
 | `tests/03-os.spec.js` | Tratamento da OS pelo gestor, próximo número da OS, técnico em Minhas OS, histórico, operador só lê, filtros, Finalizados e CSV |
 | `tests/04-gestao.spec.js` | Equipamentos, itens do checklist (novo, renomear, desativar, crítico, excluir, restaurar), painel do dia, checklist completo, paginação, backup em Excel, correção do KM |
 | `tests/05-regras.spec.js` | Regras de segurança do banco: anti-spam, ninguém vira gestor sozinho, operador e técnico não passam dos limites |
+| `tests/06-celular.spec.js` | Tela de celular: menu que abre e fecha, aviso somado no botão, tema e Sair pelo menu, tabelas em cartões, nada passando da largura da tela |
 
 ## Regra para toda mudança nova
 

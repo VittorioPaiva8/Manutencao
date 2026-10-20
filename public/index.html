@@ -52,6 +52,50 @@ button,input,select,textarea{font:inherit;color:inherit}
 .tab{background:none;border:0;color:#BDBDBD;padding:12px 14px 11px;font-weight:600;font-size:13px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;display:flex;gap:7px;align-items:center}
 .tab:hover{color:#fff}
 .tab[aria-selected="true"]{color:#fff;border-bottom-color:var(--accent)}
+.btn-menu,.sec-atual,.menu-rodape,.menu-fundo{display:none}
+.menu{display:contents}
+
+/* Celular: título numa linha só e as abas num menu que abre pelo botão */
+@media (max-width:760px){
+  .top-in{padding:10px 12px 10px 16px;flex-wrap:nowrap;gap:10px}
+  .brand>div{min-width:0}
+  .brand h1{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brand small.sub{display:none}
+  .sec-atual{display:block;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:#BDBDBD;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .top-r{flex-wrap:nowrap;gap:8px;flex:none}
+  .top-r .who,.top-r #btnTema,.top-r .btnSair{display:none}
+  .net{padding:4px 8px;font-size:11px}
+  .btn-menu{display:inline-flex;position:relative;align-items:center;justify-content:center;width:44px;height:44px;margin-right:-4px;background:none;border:1px solid #3A3A3A;border-radius:10px;color:#fff;cursor:pointer}
+  .btn-menu .ic-fechar{display:none}
+  .top.menu-aberto .btn-menu .ic-abrir{display:none}
+  .top.menu-aberto .btn-menu .ic-fechar{display:block}
+  .btn-menu .badge{position:absolute;top:-6px;right:-6px;min-width:18px;line-height:16px;font-size:10px;padding:0 5px;border:2px solid var(--head)}
+  .menu{display:none;position:absolute;left:0;right:0;top:100%;background:var(--head);border-top:1px solid #2E2E2E;max-height:calc(100dvh - 64px);overflow-y:auto;box-shadow:0 12px 24px rgba(0,0,0,.35)}
+  .top.menu-aberto .menu{display:block}
+  .menu .tabs{flex-direction:column;gap:0;padding:6px 0;overflow:visible}
+  .menu .tab{width:100%;justify-content:space-between;padding:14px 20px;font-size:15px;border-bottom:0;border-left:3px solid transparent;color:#D6D6D6}
+  .menu .tab[aria-selected="true"]{border-left-color:var(--accent);background:#262626;color:#fff}
+  .menu-rodape{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px 18px;border-top:1px solid #2E2E2E}
+  .menu-rodape .who{align-items:flex-start;color:#fff}
+  .menu-acoes{display:flex;gap:8px}
+  .menu-acoes .btn-refresh{padding:9px 14px;font-size:13px}
+  .menu-fundo{display:block;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:15}
+  /* Tabelas viram cartões: uma linha por campo, com o nome da coluna ao lado (data-l, preenchido no app.js) */
+  .cartoes{overflow:visible}
+  .cartoes thead{display:none}
+  .cartoes table,.cartoes tbody{display:block}
+  .cartoes tr{display:block;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .cartoes tr:last-child{border-bottom:0}
+  .cartoes td{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:3px 0;border:0;text-align:right;white-space:normal;min-width:0}
+  .cartoes td::before{content:attr(data-l);flex:none;text-align:left;color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+  .cartoes td[data-l=""]::before{display:none}
+  .cartoes td:first-child{justify-content:flex-start;text-align:left;font-size:15px;padding-bottom:6px}
+  .cartoes td:first-child::before{display:none}
+  .cartoes td[colspan]{display:block;text-align:center}
+  .cartoes td .actions,.cartoes td .btn{margin-left:auto}
+  .cartoes .inp{max-width:60%}
+}
+@media (max-width:420px){.brand .t-longo{display:none}}
 .badge{background:var(--accent);color:#fff;border-radius:999px;font-size:11px;padding:0 7px;min-width:20px;text-align:center;line-height:18px}
 
 main{max-width:1200px;margin:0 auto;padding-inline:16px;padding-block:20px 48px;display:flex;flex-direction:column;gap:16px}
@@ -65,6 +109,8 @@ main{max-width:1200px;margin:0 auto;padding-inline:16px;padding-block:20px 48px;
 
 .page-h{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
 .page-h h2{margin:0;font-size:20px;font-weight:700;color:var(--fg-strong)}
+.page-acoes{text-align:right}
+@media (max-width:760px){.page-acoes{text-align:left}}
 .page-h p{margin:2px 0 0;color:var(--muted);font-size:13px;max-width:65ch}
 
 /* KPIs */
@@ -278,15 +324,22 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
   <div class="top-in">
     <div class="brand">
       <div class="brand-mark">CHK</div>
-      <div><h1>Check List de Averiguação</h1><small>Manutenção e Controle · Revisão 003</small></div>
+      <div><h1>Check List<span class="t-longo"> de Averiguação</span></h1><small class="sub">Manutenção e Controle · Revisão 003</small><small class="sec-atual" id="secAtual">Novo checklist</small></div>
     </div>
     <div class="top-r">
       <span class="net on" id="netStatus">Online</span>
-      <button type="button" class="btn-refresh" id="btnTema" aria-label="Alternar tema claro ou escuro">Modo escuro</button>
+      <button type="button" class="btn-refresh" id="btnTema" data-tema-btn aria-label="Alternar tema claro ou escuro">Modo escuro</button>
       <div class="who" id="quem"></div>
       <button type="button" class="btn-refresh btnSair">Sair</button>
+      <!-- Só no celular: abre e fecha o menu com as abas -->
+      <button type="button" class="btn-menu" id="btnMenu" aria-expanded="false" aria-controls="menuCel" aria-label="Abrir menu">
+        <svg class="ic-abrir" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <svg class="ic-fechar" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span class="badge" id="menuBadge" hidden>0</span>
+      </button>
     </div>
   </div>
+  <div class="menu" id="menuCel">
   <nav class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" data-view="check" aria-selected="true">Novo checklist</button>
     <button class="tab so-painel" role="tab" data-view="dia" aria-selected="false" hidden>Painel do dia <span class="badge" id="diaBadge" hidden>0</span></button>
@@ -297,7 +350,16 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
     <button class="tab so-gestor" role="tab" data-view="cad" aria-selected="false" hidden>Cadastros</button>
     <button class="tab so-gestor" role="tab" data-view="usr" aria-selected="false" hidden>Usuários <span class="badge" id="usrBadge" hidden>0</span></button>
   </nav>
+  <div class="menu-rodape">
+    <div class="who" id="quemMenu"></div>
+    <div class="menu-acoes">
+      <button type="button" class="btn-refresh" data-tema-btn aria-label="Alternar tema claro ou escuro">Modo escuro</button>
+      <button type="button" class="btn-refresh btnSair">Sair</button>
+    </div>
+  </div>
+  </div>
 </header>
+<div class="menu-fundo" id="menuFundo" hidden></div>
 
 <main>
   <!-- NOVO CHECKLIST -->
@@ -450,7 +512,7 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
   <!-- CADASTROS (gestor) -->
   <section class="view" id="v-cad" hidden>
     <div class="page-h"><div><h2>Cadastros</h2><p>Equipamentos da frota (preenchem o checklist pela placa) e itens críticos ou desativados.</p></div>
-      <div style="text-align:right"><button type="button" class="btn dark sm" id="btnBackup">Baixar backup (Excel)</button><p class="hint" id="backupInfo" style="margin-top:4px">Tudo do sistema numa planilha, exceto as fotos.</p></div></div>
+      <div class="page-acoes"><button type="button" class="btn dark sm" id="btnBackup">Baixar backup (Excel)</button><p class="hint" id="backupInfo" style="margin-top:4px">Tudo do sistema numa planilha, exceto as fotos.</p></div></div>
     <div class="grid2">
       <div class="block">
         <div class="block-h"><h2>Equipamentos</h2></div>
@@ -506,20 +568,20 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
 </script>
 <script>
   (function () {
-    const b = document.getElementById('btnTema');
+    const bs = document.querySelectorAll('[data-tema-btn]');
     const meta = document.querySelector('meta[name="theme-color"]');
     function aplicar(t) {
       if (t === 'dark') document.documentElement.dataset.theme = 'dark';
       else delete document.documentElement.dataset.theme;
-      b.textContent = t === 'dark' ? 'Modo claro' : 'Modo escuro';
+      bs.forEach(b => { b.textContent = t === 'dark' ? 'Modo claro' : 'Modo escuro'; });
       meta.content = t === 'dark' ? '#0A0A0A' : '#1A1A1A';
     }
     aplicar(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
-    b.addEventListener('click', () => {
+    bs.forEach(b => b.addEventListener('click', () => {
       const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
       try { localStorage.setItem('tema', t); } catch (e) {}
       aplicar(t);
-    });
+    }));
   })();
 </script>
 <script type="module" src="./app.js"></script>
