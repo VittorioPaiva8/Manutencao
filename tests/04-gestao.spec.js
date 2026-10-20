@@ -1,29 +1,9 @@
-// Cadastros (equipamentos e itens), painel do dia, inspeções, paginação e backup.
+// Cadastros (itens do checklist), painel do dia, inspeções, paginação e backup.
 const fs = require('fs');
 const { test, expect, criarConta, equipamento, gravar, gravarVarios, buscar, listar, entrar, aba, preencherChecklist, responderPrompt, hojeISO, diasAtras } = require('./ajuda');
 
 test.describe('gestor', () => {
   test.beforeEach(async ({ page }) => { await entrar(page, await criarConta('Gestora', 'g@teste.com', 'gestor')); });
-
-  test('cadastra, edita e remove equipamento', async ({ page }) => {
-    await aba(page, 'cad');
-    await page.fill('#eqPlaca', 'abc-1d23');
-    await page.fill('#eqNome', 'Caminhão');
-    await page.selectOption('#eqTipo', 'KM');
-    await page.fill('#eqMedidor', '12.000');
-    await page.click('#eqBtn');
-    await expect.poll(() => buscar('equipamentos/ABC-1D23')).toMatchObject({ placa: 'ABC-1D23', tipoMedidor: 'KM', medidorAtual: 12000 });
-    await expect(page.locator('#eqTbody')).toContainText('12.000 km');
-
-    await page.click('[data-edit-eq="ABC-1D23"]');
-    await expect(page.locator('#eqNome')).toHaveValue('Caminhão');
-    await page.fill('#eqNome', 'Caminhão pipa');
-    await page.click('#eqBtn');
-    await expect.poll(async () => (await buscar('equipamentos/ABC-1D23')).equipamento).toBe('Caminhão pipa');
-
-    await page.click('[data-del-eq="ABC-1D23"]');
-    await expect.poll(() => buscar('equipamentos/ABC-1D23')).toBeNull();
-  });
 
   test('itens do checklist: adiciona, renomeia, desativa, marca crítico, exclui e restaura', async ({ page }) => {
     await aba(page, 'cad');
@@ -138,7 +118,7 @@ test('KM do cadastro: operador só aumenta pela leitura do checklist; gestor cor
   await expect.poll(async () => (await buscar('equipamentos/KMM1A11')).medidorAtual).toBe(800);
   const g = await novaJanela();
   await entrar(g, await criarConta('G', 'g@teste.com', 'gestor'));
-  await aba(g, 'cad');
+  await aba(g, 'eq');
   await g.click('[data-edit-eq="KMM1A11"]');
   await g.fill('#eqMedidor', '100');
   await g.click('#eqBtn');

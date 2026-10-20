@@ -264,7 +264,7 @@ function iniciarApp() {
     S.equip = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.placa).localeCompare(b.placa));
     $('#listaPlaca').innerHTML = S.equip.map(e => '<option value="' + esc(e.placa) + '">' + esc(e.equipamento) + '</option>').join('');
     $('#listaEquip').innerHTML = [...new Set(S.equip.map(e => e.equipamento))].map(v => '<option value="' + esc(v) + '">').join('');
-    renderCadastros(); mostrarMedidor(); renderDia();
+    renderCadastros(); mostrarMedidor(); renderDia(); renderEquip();
   });
   ouvir(query(collection(db, 'requerimentos'), where('status', 'in', STATUS_ABERTOS)), snap => {
     S.reqAbertos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -309,7 +309,7 @@ function ouvirInsp() {
   ouvirLimitado('insp', query(collection(db, 'inspecoes'), orderBy('criadoEmLocal', 'desc'), limit(LIM.insp)), snap => {
     S.insp = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }));
     S.pendentes = S.insp.filter(i => i.pend && i.criadoPor === S.user.uid).length;
-    atualizarRede(); renderInsp(); renderCadastros(); mostrarMedidor(); renderDia();
+    atualizarRede(); renderInsp(); renderCadastros(); mostrarMedidor(); renderDia(); renderEquip();
   });
 }
 
@@ -1162,14 +1162,113 @@ $('#btnBackup').addEventListener('click', async () => {
   finally { btn.disabled = false; btn.textContent = 'Baixar backup (Excel)'; }
 });
 
+// ---------- Equipamentos ----------
+// Um quadrado por equipamento, com a cor do checklist de hoje: verde aprovado, vermelho com MU,
+// amarelo com PR e cinza sem checklist. O gestor cadastra e edita pelo modal.
+const ST_EQ = {
+  ok: { nome: 'Aprovado', ic: '<path d="M6 12.5l4 4 8-9" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' },
+  mu: { nome: 'MU', ic: '<path d="M12 6.5v7" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="17.5" r="1.6" fill="currentColor"/>' },
+  pr: { nome: 'PR', ic: '<circle cx="12" cy="12" r="6.5" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M12 8.5V12l2.5 1.8" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>' },
+  nada: { nome: 'Sem checklist hoje', ic: '<path d="M7 12h10" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>' },
+};
+const icEq = st => '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' + ST_EQ[st].ic + '</svg>';
+function statusHoje(e) {
+  const i = S.insp.find(x => x.placaId === e.id && x.dataInspecao === hojeISO());
+  if (!i) return { st: 'nada', insp: null };
+  const c = i.contagem || {};
+  return { st: c.MU ? 'mu' : c.PR ? 'pr' : 'ok', insp: i };
+}
+let filtroEq = '';
+$('#eqBusca').addEventListener('input', renderEquip);
+$('#eqResumo').addEventListener('click', e => {
+  const b = e.target.closest('[data-st]'); if (!b) return;
+  filtroEq = filtroEq === b.dataset.st ? '' : b.dataset.st; renderEquip();
+});
+function renderEquip() {
+  const lista = S.equip.map(e => ({ e, ...statusHoje(e) }));
+  const cont = { ok: 0, mu: 0, pr: 0, nada: 0 };
+  lista.forEach(l => cont[l.st]++);
+  $('#eqResumo').innerHTML = Object.keys(ST_EQ).map(k => '<button type="button" class="eq-chip st-' + k + '" data-st="' + k + '" aria-pressed="' + (filtroEq === k) + '"><i></i>' + ST_EQ[k].nome + ' <b>' + cont[k] + '</b></button>').join('');
+  const q = $('#eqBusca').value.trim().toLowerCase();
+  const vis = lista.filter(l => (!filtroEq || l.st === filtroEq) && (!q || [l.e.placa, l.e.equipamento, l.e.equipe].join(' ').toLowerCase().includes(q)));
+  const g = gestor();
+  $('#eqGrid').innerHTML = vis.length ? vis.map(({ e, st, insp }) => {
+    const a = leituraAtual(e);
+    const info = [e.equipe, a ? fmtNum(a.valor) + ' ' + (UNID[e.tipoMedidor] || '') : ''].filter(Boolean).join(' · ');
+    return '<div class="eq-card st-' + st + '" role="button" tabindex="0" data-eq="' + esc(e.id) + '" aria-label="' + esc((e.equipamento || e.placa) + ': ' + ST_EQ[st].nome) + '">' +
+      '<span class="eq-topo"><span class="eq-sim">' + icEq(st) + '</span><span class="eq-st">' + ST_EQ[st].nome + '</span></span>' +
+      '<span class="eq-nome">' + (esc(e.equipamento) || esc(e.placa)) + '</span>' +
+      '<span class="eq-placa">' + esc(e.placa) + '</span>' +
+      (info ? '<span class="eq-info">' + esc(info) + '</span>' : '') +
+      (insp ? '<span class="eq-quem">Checklist: ' + esc(insp.avaliador || '') + (insp.pend ? ' <span class="tag-pend">a enviar</span>' : '') + '</span>' : '') +
+      (g ? '<button type="button" class="btn sm" data-edit-eq="' + esc(e.id) + '">Editar</button>' : '') +
+    '</div>';
+  }).join('') : '<div class="block" style="grid-column:1/-1"><div class="empty"><h3>' + (S.equip.length ? 'Nenhum equipamento neste filtro' : 'Nenhum equipamento cadastrado') + '</h3><p>' +
+    (S.equip.length ? 'Tente outra busca ou toque de novo na cor para tirar o filtro.' : g ? 'Use o botão "+ Novo equipamento" para cadastrar o primeiro.' : 'O gestor cadastra os equipamentos.') + '</p></div></div>';
+}
+function cliqueEquip(e) {
+  const ed = e.target.closest('[data-edit-eq]');
+  if (ed) { abrirEquip(S.equip.find(x => x.id === ed.dataset.editEq)); return; }
+  const card = e.target.closest('[data-eq]'); if (!card) return;
+  const eq = S.equip.find(x => x.id === card.dataset.eq); if (!eq) return;
+  const { insp } = statusHoje(eq);
+  if (insp) abrirInsp(insp);
+  else if (gestor()) abrirEquip(eq);
+  else toast('Este equipamento ainda não fez o checklist hoje.');
+}
+$('#eqGrid').addEventListener('click', cliqueEquip);
+$('#eqGrid').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-eq]')) { e.preventDefault(); cliqueEquip(e); } });
+$('#btnNovoEq').addEventListener('click', () => abrirEquip(null));
+
+/** Modal de cadastro: `eq` nulo cria um novo; senão edita (a placa não muda, porque é o ID). */
+function abrirEquip(eq) {
+  const novo = !eq, v = eq || {};
+  const a = eq && leituraAtual(eq);
+  const sel = (id, ops, atual) => '<select id="' + id + '" class="inp">' + ops.map(([val, txt]) => '<option value="' + val + '"' + (val === (atual || '') ? ' selected' : '') + '>' + txt + '</option>').join('') + '</select>';
+  $('#modalRoot').innerHTML =
+    '<div class="ov" id="ov"><form class="modal" role="dialog" aria-modal="true" aria-labelledby="eqTit" id="formEq" novalidate>' +
+      '<div class="block-h"><h2 id="eqTit">' + (novo ? 'Novo equipamento' : 'Editar ' + esc(v.placa)) + '</h2><button type="button" class="modal-x" id="mX" aria-label="Fechar">×</button></div>' +
+      '<div class="modal-b"><div class="row">' +
+        '<div class="field"><label for="eqPlaca">Placa / prefixo *</label><input id="eqPlaca" class="inp" autocomplete="off" value="' + esc(v.placa) + '"' + (novo ? '' : ' readonly') + '></div>' +
+        '<div class="field" style="flex:2 1 220px"><label for="eqNome">Equipamento *</label><input id="eqNome" class="inp" placeholder="Ex.: Caminhão basculante" value="' + esc(v.equipamento) + '"></div>' +
+        '<div class="field"><label for="eqEquipe">Equipe</label><input id="eqEquipe" class="inp" value="' + esc(v.equipe) + '"></div>' +
+        '<div class="field"><label for="eqCabine">Cabine fechada</label>' + sel('eqCabine', [['', '—'], ['SIM', 'SIM'], ['NÃO', 'NÃO']], v.cabine) + '</div>' +
+        '<div class="field"><label for="eqTipo">Medidor</label>' + sel('eqTipo', [['', 'Sem medidor'], ['KM', 'KM'], ['HR', 'Horímetro']], v.tipoMedidor) + '</div>' +
+        '<div class="field"><label for="eqMedidor">KM / horímetro atual</label><input id="eqMedidor" class="inp" inputmode="decimal" autocomplete="off" value="' + (a ? esc(String(a.valor).replace('.', ',')) : '') + '"></div>' +
+      '</div><div id="eqErro" class="callout err" hidden style="margin-top:12px"></div></div>' +
+      '<div class="modal-f">' + (novo ? '' : '<button type="button" class="btn" id="eqRemover" style="margin-right:auto">Remover</button>') +
+        '<button type="button" class="btn" id="mCancelar">Cancelar</button><button type="submit" class="btn primary" id="eqBtn">' + (novo ? 'Adicionar' : 'Salvar') + '</button></div>' +
+    '</form></div>';
+  const fechar = () => { $('#modalRoot').innerHTML = ''; };
+  $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
+  $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') fechar(); });
+  $(novo ? '#eqPlaca' : '#eqNome').focus();
+  const erro = msg => { $('#eqErro').hidden = false; $('#eqErro').textContent = msg; };
+  if (!novo) $('#eqRemover').onclick = () => {
+    if (!confirm('Remover ' + (v.equipamento || v.placa) + ' do cadastro?\n\nOs checklists e requerimentos antigos dele continuam no histórico.')) return;
+    deleteDoc(doc(db, 'equipamentos', eq.id)).then(() => toast('Equipamento removido')).catch(ex => toast(traduzErro(ex), true));
+    fechar();
+  };
+  $('#formEq').addEventListener('submit', e => {
+    e.preventDefault();
+    const placa = $('#eqPlaca').value.trim().toUpperCase(), nome = $('#eqNome').value.trim();
+    if (!placa) { $('#eqPlaca').focus(); return erro('Informe a placa ou prefixo.'); }
+    if (!nome) { $('#eqNome').focus(); return erro('Informe o nome do equipamento.'); }
+    if (novo && S.equip.some(x => x.id === idPlaca(placa))) return erro('Já existe um equipamento com a placa ' + placa + '. Use "Editar" no quadrado dele.');
+    const leitura = lerNum($('#eqMedidor').value);
+    if (Number.isNaN(leitura)) { $('#eqMedidor').focus(); return erro('O KM / horímetro atual precisa ser um número.'); }
+    const dados = { placa: novo ? placa : v.placa, equipamento: nome, equipe: $('#eqEquipe').value.trim(), cabine: $('#eqCabine').value, tipoMedidor: $('#eqTipo').value };
+    // O gestor pode corrigir a leitura para qualquer valor; vazio mantém a atual.
+    if (leitura != null) Object.assign(dados, { medidorAtual: leitura, medidorEm: serverTimestamp(), medidorPor: S.user.uid });
+    setDoc(doc(db, 'equipamentos', novo ? idPlaca(placa) : eq.id), dados, { merge: true })
+      .then(() => toast(novo ? 'Equipamento adicionado' : 'Equipamento salvo')).catch(ex => toast(traduzErro(ex), true));
+    fechar();
+  });
+}
+
 // ---------- Cadastros (gestor) ----------
 function renderCadastros() {
   if (!gestor()) return;
-  $('#eqTbody').innerHTML = S.equip.length ? S.equip.map(e =>
-    '<tr><td class="mono">' + esc(e.placa) + '</td><td>' + esc(e.equipamento) + '</td><td>' + esc(e.equipe) + '</td><td>' + esc(e.cabine) + '</td>' +
-    '<td class="r mono">' + (() => { const a = leituraAtual(e); return a ? fmtNum(a.valor) + ' ' + (UNID[e.tipoMedidor] || '') : '<span class="dim">—</span>'; })() + '</td>' +
-    '<td class="r nw"><button class="btn sm" data-edit-eq="' + esc(e.id) + '">Editar</button> <button class="btn sm" data-del-eq="' + esc(e.id) + '">Remover</button></td></tr>').join('')
-    : '<tr><td colspan="6" class="dim">Nenhum equipamento cadastrado.</td></tr>';
   const criticos = new Set(S.cfg.criticos || []), inativos = new Set(S.cfg.inativos || []);
   const livres = MAX_ITEM - ultimoNumero();
   $('#novoItemInfo').textContent = livres > 0 ? 'Ainda cabem ' + livres + ' item(ns) novo(s).' : 'Limite de itens novos atingido. Desative os que não usa mais.';
@@ -1186,30 +1285,6 @@ function renderCadastros() {
   $('#restaurarItens').textContent = 'Restaurar ' + nRem + ' item(ns) original(is) excluído(s)';
 }
 
-$('#formEq').addEventListener('submit', e => {
-  e.preventDefault();
-  const placa = $('#eqPlaca').value.trim().toUpperCase();
-  if (!placa) return;
-  const leitura = lerNum($('#eqMedidor').value);
-  if (Number.isNaN(leitura)) { toast('O KM / horímetro atual precisa ser um número.', true); return; }
-  const dados = { placa, equipamento: $('#eqNome').value.trim(), equipe: $('#eqEquipe').value.trim(), cabine: $('#eqCabine').value, tipoMedidor: $('#eqTipo').value };
-  // O gestor pode corrigir a leitura para qualquer valor; vazio mantém a atual.
-  if (leitura != null) Object.assign(dados, { medidorAtual: leitura, medidorEm: serverTimestamp(), medidorPor: S.user.uid });
-  setDoc(doc(db, 'equipamentos', idPlaca(placa)), dados, { merge: true }).then(() => toast('Equipamento salvo')).catch(ex => toast(traduzErro(ex), true));
-  e.target.reset(); $('#eqBtn').textContent = 'Adicionar';
-});
-$('#eqTbody').addEventListener('click', e => {
-  const ed = e.target.closest('[data-edit-eq]');
-  const eq = ed && S.equip.find(x => x.id === ed.dataset.editEq);
-  if (eq) {
-    $('#eqPlaca').value = eq.placa || ''; $('#eqNome').value = eq.equipamento || ''; $('#eqEquipe').value = eq.equipe || '';
-    $('#eqCabine').value = eq.cabine || ''; $('#eqTipo').value = eq.tipoMedidor || '';
-    const a = leituraAtual(eq); $('#eqMedidor').value = a ? String(a.valor).replace('.', ',') : '';
-    $('#eqBtn').textContent = 'Salvar'; $('#eqPlaca').focus(); return;
-  }
-  const b = e.target.closest('[data-del-eq]');
-  if (b && confirm('Remover este equipamento do cadastro?')) deleteDoc(doc(db, 'equipamentos', b.dataset.delEq)).catch(ex => toast(traduzErro(ex), true));
-});
 $('#cfgItens').addEventListener('change', () => {
   const criticos = $$('[data-crit]').filter(c => c.checked).map(c => Number(c.dataset.crit));
   const inativos = $$('[data-ativo]').filter(c => !c.checked).map(c => Number(c.dataset.ativo));

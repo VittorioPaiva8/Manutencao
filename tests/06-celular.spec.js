@@ -14,7 +14,7 @@ test('abas ficam num menu que abre e fecha pelo botão', async ({ page }) => {
 
   await page.click('#btnMenu');
   await expect(page.locator('#btnMenu')).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.locator('#menuCel .tab:visible')).toHaveCount(7);
+  await expect(page.locator('#menuCel .tab:visible')).toHaveCount(8);
   await expect(page.locator('#quemMenu')).toContainText('Gestora Ana');
 
   // Escolher uma aba fecha o menu e mostra o nome dela no topo.
@@ -58,7 +58,7 @@ test('nenhuma tela passa da largura do celular e as tabelas viram cartões', asy
   await equipamento('ABC1D23', 'Caminhão basculante');
   await entrar(page, await criarConta('Gestora', 'g@teste.com', 'gestor'));
   await preencherChecklist(page, { placa: 'ABC1D23', divergencias: [[23, 'MU', 'Freio']] });
-  for (const v of ['check', 'dia', 'req', 'insp', 'fin', 'cad', 'usr']) {
+  for (const v of ['check', 'dia', 'eq', 'req', 'insp', 'fin', 'cad', 'usr']) {
     await aba(page, v);
     expect(await page.evaluate(() => document.documentElement.scrollWidth), 'largura da aba ' + v).toBeLessThanOrEqual(390);
   }
@@ -94,11 +94,19 @@ test('campos com letra de 16px ou mais, para o iPhone não dar zoom ao tocar', a
   await entrar(page, await criarConta('Gestora', 'g@teste.com', 'gestor'));
   await preencherChecklist(page, { placa: 'ABC1D23', divergencias: [[23, 'MU', 'Freio']] });
   await page.click('[data-n="5"][data-s="MU"]');
-  for (const v of ['check', 'dia', 'req', 'insp', 'fin', 'cad', 'usr']) {
+  for (const v of ['check', 'dia', 'eq', 'req', 'insp', 'fin', 'cad', 'usr']) {
     await aba(page, v);
     expect(await menores(), 'aba ' + v).toEqual([]);
   }
   await aba(page, 'req');
   await page.locator('#reqTbody tr[data-id]').click();
   expect(await menores(), 'janela do requerimento').toEqual([]);
+});
+
+test('no computador o topo não mostra o nome da aba (só no celular)', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await entrar(page, await criarConta('Op', 'op@teste.com'));
+  await expect(page.locator('#secAtual')).toBeHidden();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#secAtual')).toBeVisible();
 });

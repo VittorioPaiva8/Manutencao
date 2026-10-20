@@ -52,7 +52,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .tab{background:none;border:0;color:#BDBDBD;padding:12px 14px 11px;font-weight:600;font-size:13px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;display:flex;gap:7px;align-items:center}
 .tab:hover{color:#fff}
 .tab[aria-selected="true"]{color:#fff;border-bottom-color:var(--accent)}
-.btn-menu,.sec-atual,.menu-rodape,.menu-fundo{display:none}
+.btn-menu,.brand .sec-atual,.menu-rodape,.menu-fundo{display:none}
 .menu{display:contents}
 
 /* Celular: título numa linha só e as abas num menu que abre pelo botão */
@@ -61,7 +61,7 @@ button,input,select,textarea{font:inherit;color:inherit}
   .brand>div{min-width:0}
   .brand h1{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .brand small.sub{display:none}
-  .sec-atual{display:block;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:#BDBDBD;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brand .sec-atual{display:block;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:#BDBDBD;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .top-r{flex-wrap:nowrap;gap:8px;flex:none}
   .top-r .who,.top-r #btnTema,.top-r .btnSair{display:none}
   .net{padding:4px 8px;font-size:11px}
@@ -110,6 +110,28 @@ main{max-width:1200px;margin:0 auto;padding-inline:16px;padding-block:20px 48px;
 .page-h{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
 .page-h h2{margin:0;font-size:20px;font-weight:700;color:var(--fg-strong)}
 .page-acoes{text-align:right}
+/* Equipamentos: um quadrado por equipamento, colorido pelo checklist do dia */
+.eq-barra{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.eq-barra .inp{flex:0 1 280px}
+.eq-resumo{display:flex;gap:8px;flex-wrap:wrap}
+.eq-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-strong);background:var(--surface);color:var(--fg);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer}
+.eq-chip i{width:10px;height:10px;border-radius:50%;background:var(--st)}
+.eq-chip b{font-weight:800}
+.eq-chip[aria-pressed="true"]{border-color:var(--fg-strong);box-shadow:inset 0 0 0 1px var(--fg-strong)}
+.eq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.eq-card{position:relative;background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--st);border-radius:var(--r);padding:14px 14px 12px;display:flex;flex-direction:column;gap:4px;cursor:pointer;text-align:left;min-width:0;color:var(--fg)}
+.eq-card:hover{border-color:var(--line-strong);border-top-color:var(--st)}
+.eq-card .eq-nome{font-weight:700;font-size:15px;color:var(--fg-strong);line-height:1.25;overflow-wrap:break-word;hyphens:auto;margin-top:8px}
+.eq-card .eq-placa{font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.03em}
+.eq-topo{display:flex;align-items:center;gap:8px;min-width:0}
+.eq-card .eq-st{font-size:12px;font-weight:700;color:var(--st);line-height:1.2;min-width:0}
+.eq-card .eq-quem{font-size:12px;color:var(--muted)}
+.eq-card .eq-info{font-size:12px;color:var(--muted)}
+.eq-sim{flex:none;width:30px;height:30px;border-radius:50%;background:var(--st);color:#fff;display:grid;place-items:center}
+.eq-card .btn{align-self:flex-start;margin-top:6px}
+.st-ok{--st:var(--ok)}.st-mu{--st:var(--accent)}.st-pr{--st:#D99A00}.st-nada{--st:#9A9A9A}
+:root[data-theme="dark"] .st-pr{--st:#F0B429}
+@media (max-width:760px){.eq-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.eq-barra .inp{flex:1 1 100%}}
 @media (max-width:760px){.page-acoes{text-align:left}}
 .page-h p{margin:2px 0 0;color:var(--muted);font-size:13px;max-width:65ch}
 
@@ -345,6 +367,7 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
   <nav class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" data-view="check" aria-selected="true">Novo checklist</button>
     <button class="tab so-painel" role="tab" data-view="dia" aria-selected="false" hidden>Painel do dia <span class="badge" id="diaBadge" hidden>0</span></button>
+    <button class="tab" role="tab" data-view="eq" aria-selected="false">Equipamentos</button>
     <button class="tab so-tecnico" role="tab" data-view="minhas" aria-selected="false" hidden>Minhas OS <span class="badge" id="minhasBadge" hidden>0</span></button>
     <button class="tab" role="tab" data-view="req" aria-selected="false">Requerimentos OS <span class="badge" id="reqBadge" hidden>0</span></button>
     <button class="tab" role="tab" data-view="insp" aria-selected="false">Inspeções</button>
@@ -439,6 +462,19 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
     </div>
   </section>
 
+  <!-- EQUIPAMENTOS -->
+  <section class="view" id="v-eq" hidden>
+    <div class="page-h">
+      <div><h2>Equipamentos</h2><p>Cada quadrado é um equipamento, com a cor do checklist de hoje. Toque em um para ver o checklist do dia.</p></div>
+      <button type="button" class="btn primary so-gestor" id="btnNovoEq" hidden>+ Novo equipamento</button>
+    </div>
+    <div class="eq-barra">
+      <div class="eq-resumo" id="eqResumo" role="group" aria-label="Filtrar por situação"></div>
+      <input class="inp" id="eqBusca" type="search" placeholder="Buscar placa, equipamento, equipe">
+    </div>
+    <div class="eq-grid" id="eqGrid"></div>
+  </section>
+
   <!-- MINHAS OS (técnico) -->
   <section class="view" id="v-minhas" hidden>
     <div class="page-h"><div><h2>Minhas OS</h2><p>Requerimentos em que você é o técnico responsável. Clique em um para ver a divergência e as fotos, mudar o status e registrar o serviço feito.</p></div></div>
@@ -513,25 +549,9 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
 
   <!-- CADASTROS (gestor) -->
   <section class="view" id="v-cad" hidden>
-    <div class="page-h"><div><h2>Cadastros</h2><p>Equipamentos da frota (preenchem o checklist pela placa) e itens críticos ou desativados.</p></div>
+    <div class="page-h"><div><h2>Cadastros</h2><p>Itens do checklist: adicionar, renomear, marcar como crítico ou desativar. Os equipamentos ficam na aba Equipamentos.</p></div>
       <div class="page-acoes"><button type="button" class="btn dark sm" id="btnBackup">Baixar backup (Excel)</button><p class="hint" id="backupInfo" style="margin-top:4px">Tudo do sistema numa planilha, exceto as fotos.</p></div></div>
-    <div class="grid2">
-      <div class="block">
-        <div class="block-h"><h2>Equipamentos</h2></div>
-        <form class="block-b row" id="formEq" style="border-bottom:1px solid var(--line)">
-          <div class="field"><label for="eqPlaca">Placa / prefixo</label><input id="eqPlaca" class="inp" required></div>
-          <div class="field"><label for="eqNome">Equipamento</label><input id="eqNome" class="inp"></div>
-          <div class="field"><label for="eqEquipe">Equipe</label><input id="eqEquipe" class="inp"></div>
-          <div class="field"><label for="eqCabine">Cabine fechada</label><select id="eqCabine" class="inp"><option value="">—</option><option>SIM</option><option>NÃO</option></select></div>
-          <div class="field"><label for="eqTipo">Medidor</label><select id="eqTipo" class="inp"><option value="">Sem medidor</option><option value="KM">KM</option><option value="HR">Horímetro</option></select></div>
-          <div class="field"><label for="eqMedidor">KM / horímetro atual</label><input id="eqMedidor" class="inp" inputmode="decimal" autocomplete="off"></div>
-          <button class="btn dark" type="submit" id="eqBtn">Adicionar</button>
-        </form>
-        <div class="tbl-wrap scroll"><table>
-          <thead><tr><th>Placa</th><th>Equipamento</th><th>Equipe</th><th>Cabine</th><th class="r">Atual</th><th></th></tr></thead>
-          <tbody id="eqTbody"></tbody>
-        </table></div>
-      </div>
+    <div>
       <div class="block">
         <div class="block-h"><h2>Itens do checklist</h2><span>Salva ao marcar</span></div>
         <form class="block-b row" id="formItem" style="border-bottom:1px solid var(--line)">
