@@ -166,6 +166,8 @@ textarea.inp{resize:vertical;min-height:62px}
 .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .filters{display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line)}
 .filters .inp{width:auto;flex:1 1 150px;padding:7px 10px;font-size:13px}
+/* iPhone dá zoom sozinho ao tocar num campo com letra menor que 16px (e o zoom fica). No celular, campos com 16px. */
+@media (max-width:760px),(pointer:coarse){.inp,.filters .inp,input,select,textarea{font-size:16px}}
 .callout{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:9px 12px;font-size:12px;font-weight:500}
 .callout.err{background:var(--accent-soft);color:var(--accent)}
 .callout.ok{background:var(--ok-soft);color:var(--ok)}

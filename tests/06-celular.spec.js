@@ -81,3 +81,24 @@ test.describe('computador', () => {
     await expect(page.locator('#v-req thead')).toBeVisible();
   });
 });
+
+test('campos com letra de 16px ou mais, para o iPhone não dar zoom ao tocar', async ({ page }) => {
+  const menores = () => page.evaluate(() => [...document.querySelectorAll('input, select, textarea')]
+    .filter(e => e.offsetParent && e.type !== 'checkbox' && e.type !== 'file' && parseFloat(getComputedStyle(e).fontSize) < 16)
+    .map(e => (e.id || e.className) + ' ' + getComputedStyle(e).fontSize));
+  await page.goto('/');
+  await page.locator('#telaLogin').waitFor();
+  await page.click('#lnkCadastro');
+  expect(await menores(), 'tela de login').toEqual([]);
+  await equipamento('ABC1D23', 'Caminhão');
+  await entrar(page, await criarConta('Gestora', 'g@teste.com', 'gestor'));
+  await preencherChecklist(page, { placa: 'ABC1D23', divergencias: [[23, 'MU', 'Freio']] });
+  await page.click('[data-n="5"][data-s="MU"]');
+  for (const v of ['check', 'dia', 'req', 'insp', 'fin', 'cad', 'usr']) {
+    await aba(page, v);
+    expect(await menores(), 'aba ' + v).toEqual([]);
+  }
+  await aba(page, 'req');
+  await page.locator('#reqTbody tr[data-id]').click();
+  expect(await menores(), 'janela do requerimento').toEqual([]);
+});
