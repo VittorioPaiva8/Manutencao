@@ -88,7 +88,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const S = {
   user: null, perfil: null, itens: [], cfg: { criticos: [], inativos: [] },
-  equip: [], reqAbertos: [], reqRecentes: [], reqFinalizados: [], minhas: [], insp: [], usuarios: [], pendentes: 0, subs: [],
+  equip: [], reqAbertos: [], reqRecentes: [], reqFinalizados: [], minhas: [], insp: [], usuarios: [], prev: [], pendentes: 0, subs: [],
 };
 const respostas = {};
 
@@ -261,20 +261,31 @@ function iniciarApp() {
     montarItens(); renderCadastros();
   });
   ouvir(collection(db, 'equipamentos'), snap => {
-    S.equip = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.placa).localeCompare(b.placa));
+    // Data da leitura ainda não confirmada pelo servidor: usa a estimativa local, para a correção valer na hora.
+    S.equip = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) })).sort((a, b) => String(a.placa).localeCompare(b.placa));
     $('#listaPlaca').innerHTML = S.equip.map(e => '<option value="' + esc(e.placa) + '">' + esc(e.equipamento) + '</option>').join('');
     $('#listaEquip').innerHTML = [...new Set(S.equip.map(e => e.equipamento))].map(v => '<option value="' + esc(v) + '">').join('');
     renderCadastros(); mostrarMedidor(); renderDia(); renderEquip();
   });
+  ouvir(collection(db, 'preventivas'), snap => {
+    S.prev = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }));
+    renderEquip(); renderDia(); if (pintarPrev.eq) pintarPrev(pintarPrev.eq);
+  });
+  novidades.vistos = {};
+  atualizarBtnAvisos();
   ouvir(query(collection(db, 'requerimentos'), where('status', 'in', STATUS_ABERTOS)), snap => {
     S.reqAbertos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderReq(); renderDia();
+    if (gestor()) novidades('reqs', snap).filter(r => r.prioridade === 'ALTA' && r.criadoPor !== S.user.uid)
+      .forEach(r => avisar('Requerimento urgente: ' + r.placa, r.itemNumero + ' · ' + r.itemNome + (r.descricao ? ' — ' + r.descricao : ''), r.id));
   });
   if (tecnico()) {
     ouvir(query(collection(db, 'requerimentos'), where('responsavelUid', '==', S.user.uid)), snap => {
       S.minhas = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }))
         .sort((a, b) => (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0));
       renderMinhas();
+      novidades('minhas', snap).filter(r => STATUS_ABERTOS.includes(r.status))
+        .forEach(r => avisar('Nova OS para você: ' + r.placa, r.itemNumero + ' · ' + r.itemNome + (r.numeroOS ? ' · OS ' + r.numeroOS : ''), r.id));
     });
   }
   ouvirReqRecentes(); ouvirInsp();
@@ -424,10 +435,10 @@ function comprimirFoto(arquivo) {
     img.src = url;
   });
 }
-async function carregarFotos(ids, alvo) {
+async function carregarFotos(ids, alvo, alt = 'Foto da divergência') {
   const docs = await Promise.all(ids.map(id => getDoc(doc(db, 'fotos', id)).catch(() => null)));
-  const fotos = docs.filter(d => d && d.exists()).map(d => d.data().dados);
-  if (alvo) alvo.innerHTML = fotos.length ? fotos.filter(f => String(f).startsWith('data:image/')).map(f => '<img class="foto-mini" src="' + esc(f) + '" alt="Foto da divergência">').join('') : '<span class="dim">Sem foto</span>';
+  const fotos = docs.filter(d => d && d.exists()).map(d => d.data().dados).filter(f => String(f).startsWith('data:image/'));
+  if (alvo) alvo.innerHTML = fotos.length ? fotos.map(f => '<img class="foto-mini" src="' + esc(f) + '" alt="' + alt + '">').join('') : '<span class="dim">Sem foto</span>';
   return fotos;
 }
 function verFoto(src) {
@@ -465,7 +476,8 @@ function contar() {
 }
 
 // ---------- KM / horímetro ----------
-// A leitura atual do equipamento é a maior entre a do cadastro e a do último checklist já carregado.
+// A leitura atual do equipamento é a mais recente entre a do cadastro (o gestor pode corrigir para menos)
+// e a dos checklists já carregados. Cadastro antigo sem data de leitura: vale a maior.
 const UNID = { KM: 'km', HR: 'h' };
 const fmtNum = n => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 // Aceita o jeito brasileiro: "12.345,6" ou "12.345" (ponto de milhar) e também "12345.6".
@@ -478,9 +490,12 @@ const lerNum = s => {
   return Number.isFinite(n) && n >= 0 ? n : NaN;
 };
 function leituraAtual(e) {
-  let atual = typeof e.medidorAtual === 'number' ? { valor: e.medidorAtual, em: e.medidorEm } : null;
+  const ms = v => { const d = paraData(v); return d ? d.getTime() : 0; };
+  let atual = typeof e.medidorAtual === 'number' ? { valor: e.medidorAtual, em: e.medidorEm, t: ms(e.medidorEm) } : null;
   S.insp.forEach(i => {
-    if (i.placaId === e.id && typeof i.kmHrValor === 'number' && (!atual || i.kmHrValor > atual.valor)) atual = { valor: i.kmHrValor, em: i.criadoEm || i.criadoEmLocal };
+    if (i.placaId !== e.id || typeof i.kmHrValor !== 'number') return;
+    const t = i.criadoEmLocal || ms(i.criadoEm);
+    if (!atual || (atual.t ? t > atual.t : i.kmHrValor > atual.valor)) atual = { valor: i.kmHrValor, em: i.criadoEm || i.criadoEmLocal, t };
   });
   return atual;
 }
@@ -585,7 +600,8 @@ async function enviarChecklist() {
   ok.innerHTML = '<b>Checklist ' + esc(r.codigo) + (navigator.onLine ? ' registrado.' : ' salvo no aparelho.</b> Será enviado sozinho quando houver internet.<b>') +
     '</b> Liberado para atividades: <b>' + r.liberado + '</b>. ' +
     (rodado != null ? 'Rodou <b>' + fmtNum(rodado) + ' ' + un + '</b> desde a última conferência. ' : '') +
-    (r.reqs.length ? r.reqs.length + ' requerimento(s) de OS: ' + r.reqs.map(q => esc(q.codigo) + (q.novo ? '' : ' (somado a um já aberto)')).join(', ') + '.' : 'Nenhuma divergência.');
+    (r.reqs.length ? r.reqs.length + ' requerimento(s) de OS: ' + r.reqs.map(q => esc(q.codigo) + (q.novo ? '' : ' (somado a um já aberto)')).join(', ') + '.' : 'Nenhuma divergência.') +
+    alertasPrev(equip, valor).map(a => '<span class="ok-prev">Preventiva <b>' + esc(a.p.nome) + '</b> ' + txtPrev(a, un) + '. Avise a manutenção.</span>').join('');
   limparFormulario();
   toast(navigator.onLine ? 'Checklist registrado' : 'Salvo offline. Envio automático quando conectar.');
   scrollTo({ top: 0, behavior: 'smooth' });
@@ -864,7 +880,7 @@ function lerResponsavel() {
 
 // ---------- Histórico da OS ----------
 // Cada mudança de tratamento entra em `historico` (lista no próprio requerimento): quem, quando e o que mudou.
-function htmlHistorico(r) {
+function eventosHistorico(r) {
   const ev = [{ em: r.criadoEm || r.criadoEmLocal, por: r.avaliador, txt: 'Requerimento aberto pelo checklist ' + (r.inspecaoCodigo || '') }];
   if ((r.ocorrencias || 1) > 1) ev.push({ em: r.ultimaOcorrencia, por: '', txt: 'Divergência repetida em outro checklist (' + r.ocorrencias + ' ocorrências no total)' });
   (r.historico || []).forEach(h => {
@@ -874,8 +890,10 @@ function htmlHistorico(r) {
     if (h.respAntes !== h.resp) m.push('Responsável: ' + (h.resp || '—'));
     ev.push({ em: h.em, por: h.por, txt: m.join(' · ') || 'Observação', obs: h.obs });
   });
-  ev.sort((a, b) => (paraData(a.em) || 0) - (paraData(b.em) || 0));
-  return '<ul class="hist">' + ev.map(e => '<li><b>' + esc(e.txt) + '</b><small>' + esc(fmt(e.em)) + (e.por ? ' · ' + esc(e.por) : '') + '</small>' +
+  return ev.sort((a, b) => (paraData(a.em) || 0) - (paraData(b.em) || 0));
+}
+function htmlHistorico(r) {
+  return '<ul class="hist">' + eventosHistorico(r).map(e => '<li><b>' + esc(e.txt) + '</b><small>' + esc(fmt(e.em)) + (e.por ? ' · ' + esc(e.por) : '') + '</small>' +
     (e.obs ? '<div class="h-obs">' + esc(e.obs) + '</div>' : '') + '</li>').join('') + '</ul>';
 }
 
@@ -893,7 +911,9 @@ function abrirReq(r) {
     '<div class="ov" id="ov"><div class="modal" role="dialog" aria-modal="true">' +
       '<div class="block-h"><h2>' + esc(r.codigo) + '</h2><button class="modal-x" id="mX" aria-label="Fechar">×</button></div>' +
       '<div class="modal-b"><dl class="kv">' + campos.map(([l, v]) => '<dt>' + l + '</dt><dd>' + esc(v) + '</dd>').join('') + '</dl>' +
-        '<p class="section-t">Fotos</p><div class="fotos" id="mFotos"><span class="dim">Carregando…</span></div>' +
+        '<div class="fotos-2"><div><p class="section-t">Fotos da divergência</p><div class="fotos" id="mFotos"><span class="dim">Carregando…</span></div></div>' +
+        '<div><p class="section-t">Serviço pronto</p><div class="fotos" id="mFotoServ"><span class="dim">Carregando…</span></div>' +
+        (edita ? '<label class="btn sm" style="margin-top:8px">Anexar foto do serviço<input type="file" accept="image/*" capture="environment" id="mFotoServInp" hidden></label>' : '') + '</div></div>' +
         '<p class="section-t">Tratamento</p>' +
         '<div class="row">' +
           '<div class="field"><label for="mStatus">Status</label><select id="mStatus" class="inp"' + (edita ? '' : ' disabled') + '>' + opcoes.map(s => '<option' + (s === r.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></div>' +
@@ -903,13 +923,23 @@ function abrirReq(r) {
         (edita ? '<div class="field" style="margin-top:10px"><label for="mObs">' + (tec ? 'Serviço realizado / observação' : 'Observação (opcional)') + '</label><textarea id="mObs" class="inp" maxlength="1000" rows="2" placeholder="Fica registrada no histórico"></textarea></div>'
           : '<p class="hint">Somente o gestor ou o técnico responsável altera o tratamento.</p>') +
         '<p class="section-t">Histórico</p>' + htmlHistorico(r) + '</div>' +
-      '<div class="modal-f"><button class="btn" id="mCancelar">' + (edita ? 'Cancelar' : 'Fechar') + '</button>' + (edita ? '<button class="btn primary" id="mSalvar">Salvar</button>' : '') + '</div>' +
+      '<div class="modal-f"><button class="btn" id="mImprimir" style="margin-right:auto">Imprimir / PDF</button><button class="btn" id="mCancelar">' + (edita ? 'Cancelar' : 'Fechar') + '</button>' + (edita ? '<button class="btn primary" id="mSalvar">Salvar</button>' : '') + '</div>' +
     '</div></div>';
   const fechar = () => { $('#modalRoot').innerHTML = ''; };
   $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
   $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') fechar(); });
-  carregarFotos([...new Set(r.inspecoes || [r.inspecaoId])].map(i => i + '_' + r.itemNumero), $('#mFotos'));
+  carregarFotos(idsFotosReq(r), $('#mFotos'));
+  carregarFotos(['servico_' + r.id], $('#mFotoServ'), 'Foto do serviço pronto');
+  $('#mImprimir').onclick = () => imprimirReq(r);
   if (!edita) return;
+  let fotoServ = null;
+  $('#mFotoServInp').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      fotoServ = await comprimirFoto(f);
+      $('#mFotoServ').innerHTML = '<img class="foto-mini" src="' + esc(fotoServ) + '" alt="Foto do serviço pronto"><span class="dim">Nova, salva ao clicar em Salvar</span>';
+    } catch (ex) { toast('Não foi possível usar esta foto.', true); }
+  };
   // Ao marcar "OS aberta" com o campo vazio, já sugere o próximo número.
   const sugerir = () => { if (pode && $('#mStatus').value === 'OS aberta' && !$('#mOS').value.trim()) $('#mOS').value = proximaOS(r.id); };
   $('#mStatus').addEventListener('change', sugerir); sugerir();
@@ -919,18 +949,24 @@ function abrirReq(r) {
     const os = pode ? $('#mOS').value.trim() : (r.numeroOS || '');
     const resp = pode ? lerResponsavel() : { nome: r.responsavel || '', uid: r.responsavelUid || '' };
     const mudou = status !== r.status || os !== (r.numeroOS || '') || resp.nome !== (r.responsavel || '');
-    if (!mudou && !obs) { fechar(); return; }
+    if (!mudou && !obs && !fotoServ) { fechar(); return; }
+    if (fotoServ) {
+      setDoc(doc(db, 'fotos', 'servico_' + r.id), { reqId: r.id, tipo: 'servico', dados: fotoServ, criadoPor: S.user.uid, criadoEm: serverTimestamp() })
+        .catch(e => toast(traduzErro(e), true));
+    }
     const upd = { status, fechadoEm: fechado ? (r.fechadoEm || serverTimestamp()) : null };
     if (pode) Object.assign(upd, { numeroOS: os, responsavel: resp.nome, responsavelUid: resp.uid });
     upd.historico = arrayUnion({
       em: Date.now(), por: S.perfil.nome || S.user.email || '', uid: S.user.uid,
-      de: r.status, status, osAntes: r.numeroOS || '', os, respAntes: r.responsavel || '', resp: resp.nome, obs,
+      de: r.status, status, osAntes: r.numeroOS || '', os, respAntes: r.responsavel || '', resp: resp.nome,
+      obs: [obs, fotoServ ? 'Foto do serviço pronto anexada.' : ''].filter(Boolean).join('\n'),
     });
     updateDoc(doc(db, 'requerimentos', r.id), upd).catch(e => toast(traduzErro(e), true));
     fechar();
     toast(navigator.onLine ? 'Requerimento atualizado' : 'Atualização salva offline');
   };
 }
+const idsFotosReq = r => [...new Set(r.inspecoes || [r.inspecaoId])].map(i => i + '_' + r.itemNumero);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modalRoot').innerHTML = ''; });
 
 // ---------- Inspeções ----------
@@ -961,7 +997,7 @@ function abrirInsp(r) {
         '<div class="row" style="justify-content:space-between;align-items:center"><p class="section-t">Itens · OK ' + (c.OK || 0) + ' · MU ' + (c.MU || 0) + ' · PR ' + (c.PR || 0) + ' · NA ' + (c.NA || 0) + '</p>' +
         '<label class="chk"><input type="checkbox" id="mSoDiv"' + ((c.MU || 0) + (c.PR || 0) ? ' checked' : '') + '> Só divergências</label></div>' +
         '<div class="tbl-wrap"><table><tbody id="mItens"></tbody></table></div></div>' +
-      '<div class="modal-f"><button class="btn" id="mCancelar">Fechar</button></div>' +
+      '<div class="modal-f"><button class="btn" id="mImprimir" style="margin-right:auto">Imprimir / PDF</button><button class="btn" id="mCancelar">Fechar</button></div>' +
     '</div></div>';
   const pintar = () => {
     const so = $('#mSoDiv').checked;
@@ -970,6 +1006,7 @@ function abrirInsp(r) {
     $$('[data-foto-insp]').forEach(el => carregarFotos([el.dataset.fotoInsp], el));
   };
   $('#mSoDiv').onchange = pintar; pintar();
+  $('#mImprimir').onclick = () => imprimirInsp(r);
   const fechar = () => { $('#modalRoot').innerHTML = ''; };
   $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
   $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') fechar(); });
@@ -1018,7 +1055,11 @@ function renderDia() {
     kpi('Equipamentos', linhas.length, 'cadastrados') +
     kpi('Checklist hoje', feitos, 'de ' + linhas.length + ' feitos em ' + fmtData(hoje)) +
     kpi('Sem checklist', linhas.length - feitos, 'ainda não conferidos hoje', linhas.length - feitos > 0) +
-    kpi('Não liberados', nao, 'pelo último checklist', nao > 0);
+    kpi('Não liberados', nao, 'pelo último checklist', nao > 0) +
+    (S.prev.length ? (() => {
+      const al = S.equip.flatMap(e => alertasPrev(e)), venc = al.filter(a => a.st === 'vencida').length;
+      return kpi('Preventivas vencidas', venc, (al.length - venc) + ' chegando perto', venc > 0);
+    })() : '');
   $('#diaBadge').hidden = !nao; $('#diaBadge').textContent = nao;
   const q = $('#dBusca').value.trim().toLowerCase(), f = $('#dFiltro').value;
   const ordem = l => (l.nao ? 0 : l.hj ? 2 : 1);
@@ -1134,7 +1175,7 @@ $('#btnBackup').addEventListener('click', async () => {
   const btn = $('#btnBackup'); btn.disabled = true; btn.textContent = 'Gerando backup…';
   try {
     const tudo = async col => (await getDocs(collection(db, col))).docs.map(d => ({ id: d.id, ...d.data() }));
-    const [equip, insp, reqs, usuarios] = await Promise.all(['equipamentos', 'inspecoes', 'requerimentos', 'usuarios'].map(tudo));
+    const [equip, insp, reqs, usuarios, prev] = await Promise.all(['equipamentos', 'inspecoes', 'requerimentos', 'usuarios', 'preventivas'].map(tudo));
     insp.sort((a, b) => (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0));
     reqs.sort((a, b) => (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0));
     const criticos = new Set(S.cfg.criticos || []), inativos = new Set(S.cfg.inativos || []);
@@ -1150,6 +1191,8 @@ $('#btnBackup').addEventListener('click', async () => {
       ['Histórico das OS', [['Requerimento', 'Placa', 'Quando', 'Quem', 'Status anterior', 'Status', 'Nº OS', 'Responsável', 'Observação']].concat(hist)],
       ['Equipamentos', [['Placa', 'Equipamento', 'Equipe', 'Cabine fechada', 'Medidor', 'Leitura atual', 'Leitura em']]
         .concat(equip.map(e => [e.placa, e.equipamento, e.equipe, e.cabine, e.tipoMedidor === 'HR' ? 'Horímetro' : e.tipoMedidor === 'KM' ? 'KM' : '', e.medidorAtual, fmt(e.medidorEm)]))],
+      ['Preventivas', [['Placa', 'Preventiva', 'A cada', 'Última feita (leitura)', 'Feita em', 'Feita por']]
+        .concat(prev.map(p => { const e = equip.find(x => x.id === p.placaId) || {}; const un = UNID[e.tipoMedidor] || ''; return [p.placa, p.nome, p.intervalo + (un ? ' ' + un : ''), p.ultimaFeita, fmt(p.ultimaEm), p.feitaPor]; }))],
       ['Itens do checklist', [['Nº', 'Item', 'Crítico', 'Ativo', 'Adicionado']].concat(todosItens().map(it => [it.numero, it.nome, criticos.has(it.numero) ? 'SIM' : '', inativos.has(it.numero) ? 'NÃO' : 'SIM', it.extra ? 'SIM' : '']))],
       ['Usuários', [['Nome', 'E-mail', 'Cargo', 'Situação']].concat(usuarios.map(u => [u.nome, u.email, PAPEIS[u.papel] || u.papel, u.ativo ? 'Ativo' : 'Aguardando']))],
     ]);
@@ -1178,6 +1221,7 @@ const IC_LINHA = {
   medidor: linha('<path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 13l3.5-3.5"/><circle cx="12" cy="13" r="1"/>'),
   checklist: linha('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM8.5 12.5l2 2 4-4"/>'),
   lapis: linha('<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>'),
+  chave: linha('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8V20h3.2l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>'),
 };
 const icEq = st => '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' + ST_EQ[st].ic + '</svg>';
 function statusHoje(e) {
@@ -1200,8 +1244,13 @@ function renderEquip() {
   const q = $('#eqBusca').value.trim().toLowerCase();
   const vis = lista.filter(l => (!filtroEq || l.st === filtroEq) && (!q || [l.e.placa, l.e.equipamento, l.e.equipe].join(' ').toLowerCase().includes(q)));
   const g = gestor();
+  const al = S.equip.flatMap(e => alertasPrev(e)), venc = al.filter(a => a.st === 'vencida').length;
+  $('#eqPrev').hidden = !al.length;
+  $('#eqPrev').innerHTML = IC_LINHA.chave + '<span>Preventivas: ' + [venc ? '<b>' + venc + (venc === 1 ? ' vencida' : ' vencidas') + '</b>' : '', al.length - venc ? (al.length - venc) + ' chegando perto' : ''].filter(Boolean).join(' e ') +
+    '. Toque no equipamento para ver e marcar como feita.</span>';
+  $('#eqPrev').className = 'callout eq-prev-aviso' + (venc ? ' err' : '');
   $('#eqGrid').innerHTML = vis.length ? vis.map(({ e, st, insp }) => {
-    const a = leituraAtual(e);
+    const a = leituraAtual(e), ap = alertasPrev(e);
     return '<div class="eq-card st-' + st + '" role="button" tabindex="0" data-eq="' + esc(e.id) + '" aria-label="' + esc((e.equipamento || e.placa) + ': ' + ST_EQ[st].nome) + '">' +
       '<span class="eq-selo"><span class="eq-sim">' + icEq(st) + '</span>' + (ST_EQ[st].curto || ST_EQ[st].nome) + '</span>' +
       (g ? '<button type="button" class="eq-lapis" data-edit-eq="' + esc(e.id) + '" aria-label="Editar ' + esc(e.placa) + '" title="Editar">' + IC_LINHA.lapis + '</button>' : '') +
@@ -1212,6 +1261,7 @@ function renderEquip() {
         (a ? '<span>' + IC_LINHA.medidor + fmtNum(a.valor) + ' ' + (UNID[e.tipoMedidor] || '') + '</span>' : '') +
         (insp ? '<span>' + IC_LINHA.checklist + esc(insp.avaliador || 'Checklist') + (insp.criadoEm || insp.criadoEmLocal ? ' · ' + fmt(insp.criadoEm || insp.criadoEmLocal).slice(-5) : '') + (insp.pend ? ' <span class="tag-pend">a enviar</span>' : '') + '</span>' : '') +
       '</span>' +
+      (ap.length ? '<span class="eq-prev ' + (ap[0].st === 'vencida' ? 'st-mu' : 'st-pr') + '">' + IC_LINHA.chave + '<span>' + esc(ap[0].p.nome) + ' ' + txtPrev(ap[0], UNID[e.tipoMedidor] || '') + (ap.length > 1 ? ' · +' + (ap.length - 1) : '') + '</span></span>' : '') +
     '</div>';
   }).join('') : '<div class="block" style="grid-column:1/-1"><div class="empty"><h3>' + (S.equip.length ? 'Nenhum equipamento neste filtro' : 'Nenhum equipamento cadastrado') + '</h3><p>' +
     (S.equip.length ? 'Tente outra busca ou toque de novo na cor para tirar o filtro.' : g ? 'Use o botão "+ Novo equipamento" para cadastrar o primeiro.' : 'O gestor cadastra os equipamentos.') + '</p></div></div>';
@@ -1226,6 +1276,172 @@ function cliqueEquip(e) {
 $('#eqGrid').addEventListener('click', cliqueEquip);
 $('#eqGrid').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-eq]')) { e.preventDefault(); cliqueEquip(e); } });
 $('#btnNovoEq').addEventListener('click', () => abrirEquip(null));
+
+// ---------- Preventivas por KM / horímetro ----------
+// Cada preventiva tem um intervalo (ex.: troca de óleo a cada 10.000 km) e a leitura em que foi feita por último.
+// Avisa quando falta 10% do intervalo ou menos; vence quando a leitura passa da próxima.
+const AVISO_PREV = 0.1;
+function situacaoPrev(p, eq, valor) {
+  const a = valor == null ? leituraAtual(eq) : { valor };
+  const atual = a ? a.valor : p.ultimaFeita, proxima = p.ultimaFeita + p.intervalo;
+  const falta = Math.round((proxima - atual) * 10) / 10;
+  return { st: falta <= 0 ? 'vencida' : falta <= p.intervalo * AVISO_PREV ? 'perto' : 'ok', proxima, falta, atual,
+    usado: Math.min(1, Math.max(0, (atual - p.ultimaFeita) / p.intervalo)) };
+}
+const prevDoEq = eq => S.prev.filter(p => p.placaId === eq.id && typeof p.intervalo === 'number' && typeof p.ultimaFeita === 'number')
+  .sort((a, b) => String(a.nome).localeCompare(b.nome));
+/** Preventivas vencidas ou perto de vencer, a mais urgente primeiro. `valor`: leitura nova (opcional). */
+const alertasPrev = (eq, valor) => eq.tipoMedidor ? prevDoEq(eq).map(p => ({ p, ...situacaoPrev(p, eq, valor) })).filter(x => x.st !== 'ok').sort((a, b) => a.falta - b.falta) : [];
+const txtPrev = (s, un) => s.st === 'vencida' ? (s.falta < 0 ? 'vencida há ' + fmtNum(-s.falta) + ' ' + un : 'vence agora') : 'em ' + fmtNum(s.falta) + ' ' + un;
+
+/** Bloco de preventivas dentro do relatório. Redesenha sozinho quando a lista muda no banco. */
+function pintarPrev(eq) {
+  const el = $('#relPrev');
+  if (!el) { pintarPrev.eq = null; return; }
+  pintarPrev.eq = eq = S.equip.find(x => x.id === eq.id) || eq;
+  const un = UNID[eq.tipoMedidor] || '', g = gestor(), feita = g || tecnico();
+  const a = leituraAtual(eq);
+  const aberto = $('#prevForm') && !$('#prevForm').hidden;
+  if (aberto) return; // não apaga o que o gestor está digitando
+  const lista = prevDoEq(eq);
+  el.innerHTML = '<div class="rel-prev-h"><p class="section-t">Preventivas</p>' + (g && un ? '<button type="button" class="btn sm" id="prevNova">+ Preventiva</button>' : '') + '</div>' +
+    (!un ? '<p class="hint">Para usar preventivas, defina o medidor (KM ou horímetro) no cadastro do equipamento.</p>' :
+    (g ? '<form class="prev-form" id="prevForm" hidden novalidate><div class="row">' +
+      '<div class="field" style="flex:2 1 200px"><label for="pvNome">Serviço</label><input id="pvNome" class="inp" maxlength="80" placeholder="Ex.: Troca de óleo do motor"></div>' +
+      '<div class="field"><label for="pvInt">A cada (' + un + ')</label><input id="pvInt" class="inp" inputmode="decimal" placeholder="' + (un === 'h' ? '250' : '10.000') + '"></div>' +
+      '<div class="field"><label for="pvUlt">Feita por último em (' + un + ')</label><input id="pvUlt" class="inp" inputmode="decimal" value="' + (a ? esc(String(a.valor).replace('.', ',')) : '') + '"></div>' +
+    '</div><div id="pvErro" class="callout err" hidden style="margin-top:8px"></div><div class="prev-form-f"><button type="button" class="btn" id="pvCancelar">Cancelar</button><button type="submit" class="btn primary" id="pvSalvar">Adicionar</button></div></form>' : '') +
+    (lista.length ? '<ul class="prev-lista">' + lista.map(p => ({ p, s: situacaoPrev(p, eq) })).sort((a, b) => a.s.falta / a.p.intervalo - b.s.falta / b.p.intervalo).map(({ p, s }) => {
+      const cls = s.st === 'vencida' ? 'st-mu' : s.st === 'perto' ? 'st-pr' : 'st-ok';
+      return '<li class="' + cls + '" data-prev="' + esc(p.id) + '"><div class="prev-info"><b>' + esc(p.nome) + '</b>' +
+        '<small>A cada ' + fmtNum(p.intervalo) + ' ' + un + ' · última em ' + fmtNum(p.ultimaFeita) + ' ' + un + (p.ultimaEm ? ' (' + fmt(p.ultimaEm).slice(0, 10) + ')' : '') + ' · próxima em ' + fmtNum(s.proxima) + ' ' + un + '</small>' +
+        '<div class="track"><span style="width:' + Math.round(s.usado * 100) + '%"></span></div></div>' +
+        '<span class="prev-st">' + (s.st === 'ok' ? 'Em dia · faltam ' + fmtNum(s.falta) + ' ' + un : txtPrev(s, un).replace(/^./, c => c.toUpperCase())) + '</span>' +
+        '<span class="prev-acoes">' + (feita ? '<button type="button" class="btn sm" data-prev-feita="' + esc(p.id) + '">Feita</button>' : '') +
+        (g ? '<button type="button" class="btn sm" data-prev-del="' + esc(p.id) + '" aria-label="Remover ' + esc(p.nome) + '" title="Remover">×</button>' : '') + '</span></li>';
+    }).join('') + '</ul>' : '<p class="hint">Nenhuma preventiva cadastrada' + (g ? '. Use "+ Preventiva" para cadastrar, por exemplo, a troca de óleo a cada 10.000 ' + un + '.' : '.') + '</p>'));
+  if (!un || !g) return;
+  const form = $('#prevForm');
+  const abrirForm = v => { form.hidden = !v; if ($('#prevNova')) $('#prevNova').hidden = v; if (v) $('#pvNome').focus(); else pintarPrev(eq); };
+  if ($('#prevNova')) $('#prevNova').onclick = () => abrirForm(true);
+  $('#pvCancelar').onclick = () => abrirForm(false);
+  form.onsubmit = e => {
+    e.preventDefault();
+    const nome = $('#pvNome').value.trim(), intervalo = lerNum($('#pvInt').value), ult = lerNum($('#pvUlt').value);
+    const erro = (msg, id) => { $('#pvErro').hidden = false; $('#pvErro').textContent = msg; $('#' + id).focus(); };
+    if (!nome) return erro('Informe o serviço.', 'pvNome');
+    if (!intervalo) return erro('Informe de quantos em quantos ' + un + ' a preventiva é feita.', 'pvInt');
+    if (ult == null || Number.isNaN(ult)) return erro('Informe em quantos ' + un + ' ela foi feita por último.', 'pvUlt');
+    setDoc(doc(collection(db, 'preventivas')), {
+      placaId: eq.id, placa: eq.placa, nome, intervalo, ultimaFeita: ult, ultimaEm: serverTimestamp(),
+      feitaPor: S.perfil.nome || '', feitaUid: S.user.uid, criadoEm: serverTimestamp(),
+    }).then(() => toast('Preventiva cadastrada')).catch(ex => toast(traduzErro(ex), true));
+    form.hidden = true;
+    pintarPrev(eq);
+  };
+}
+document.addEventListener('click', e => {
+  const f = e.target.closest('#relPrev [data-prev-feita]'), d = e.target.closest('#relPrev [data-prev-del]');
+  const p = (f || d) && S.prev.find(x => x.id === (f || d).dataset[f ? 'prevFeita' : 'prevDel']);
+  if (!p) return;
+  const eq = S.equip.find(x => x.id === p.placaId), un = UNID[eq && eq.tipoMedidor] || '';
+  if (d) {
+    if (confirm('Remover a preventiva "' + p.nome + '"?')) deleteDoc(doc(db, 'preventivas', p.id)).then(() => toast('Preventiva removida')).catch(ex => toast(traduzErro(ex), true));
+    return;
+  }
+  const a = eq && leituraAtual(eq);
+  const resp = prompt('Em quantos ' + un + ' estava o equipamento quando "' + p.nome + '" foi feita?', a ? fmtNum(a.valor) : '');
+  if (resp == null) return;
+  const v = lerNum(resp);
+  if (v == null || Number.isNaN(v)) { toast('Informe um número.', true); return; }
+  updateDoc(doc(db, 'preventivas', p.id), { ultimaFeita: v, ultimaEm: serverTimestamp(), feitaPor: S.perfil.nome || '', feitaUid: S.user.uid })
+    .then(() => toast('Preventiva marcada como feita')).catch(ex => toast(traduzErro(ex), true));
+});
+
+// ---------- Impressão / PDF ----------
+// Monta a folha no padrão do formulário em #printRoot e abre a impressão do aparelho,
+// onde dá para imprimir, "Salvar como PDF" ou compartilhar.
+async function imprimir(titulo, html) {
+  const root = $('#printRoot');
+  root.innerHTML = html;
+  await Promise.all([...root.querySelectorAll('img')].map(i => i.decode().catch(() => {})));
+  const antes = document.title;
+  document.title = titulo; // vira o nome sugerido do arquivo PDF
+  const limpar = () => { document.title = antes; root.innerHTML = ''; removeEventListener('afterprint', limpar); };
+  addEventListener('afterprint', limpar);
+  window.print();
+}
+const cabImp = (tit, cod, sub) => '<div class="pr-cab"><div class="pr-marca">CHK</div><div class="pr-tit"><b>' + tit + '</b><span>Manutenção e Controle · Revisão 003</span></div>' +
+  '<div class="pr-cod"><b>' + esc(cod) + '</b><span>' + esc(sub) + '</span></div></div>';
+const dadosImp = pares => '<div class="pr-dados">' + pares.map(([l, v, larga]) => '<div' + (larga ? ' class="larga"' : '') + '><span>' + l + '</span><b>' + (esc(v) || '&nbsp;') + '</b></div>').join('') + '</div>';
+const assImp = nomes => '<div class="pr-ass">' + nomes.map(n => '<div><span></span>' + n + '</div>').join('') + '</div>';
+const rodapeImp = () => '<div class="pr-rod">Impresso em ' + new Date().toLocaleString('pt-BR').slice(0, 17) + ' por ' + esc(S.perfil.nome || '') + ' · Check List de Averiguação</div>';
+
+function imprimirInsp(r) {
+  const c = r.contagem || {}, crit = new Set(S.cfg.criticos || []);
+  const linhas = (r.respostas || []).map(it => '<tr class="pr-' + String(it.status || '').toLowerCase() + '"><td class="c">' + esc(it.numero) + '</td><td>' + esc(it.nome) + (crit.has(it.numero) ? ' (*)' : '') +
+    (it.obs ? '<i>' + esc(it.obs) + '</i>' : '') + '</td>' + ['OK', 'MU', 'PR', 'NA'].map(s => '<td class="c x">' + (it.status === s ? 'X' : '') + '</td>').join('') + '</tr>').join('');
+  imprimir('Checklist ' + r.placa + ' ' + fmtData(r.dataInspecao).replace(/\//g, '-'),
+    '<div class="pr-folha">' + cabImp('CHECK-LIST AVERIGUAÇÃO P1', r.codigo, fmtData(r.dataInspecao) + (r.diaSemana ? ' · ' + r.diaSemana : '')) +
+    dadosImp([['Placa / prefixo', r.placa], ['Equipamento', r.equipamento], ['KM / HR', r.kmHr], ['Data', fmtData(r.dataInspecao)],
+      ['Avaliador', r.avaliador], ['Equipe', r.equipe], ['Cabine fechada', r.cabine], ['Liberado para atividades', r.liberado]]) +
+    '<table class="pr-tab"><thead><tr><th class="c">Nº</th><th>Item verificado</th><th class="c">OK</th><th class="c">MU</th><th class="c">PR</th><th class="c">NA</th></tr></thead><tbody>' + linhas + '</tbody></table>' +
+    '<div class="pr-tot">OK ' + (c.OK || 0) + ' · MU ' + (c.MU || 0) + ' · PR ' + (c.PR || 0) + ' · NA ' + (c.NA || 0) + (r.requerimentos && r.requerimentos.length ? ' · Requerimentos: ' + esc(r.requerimentos.join(', ')) : '') + '</div>' +
+    '<p class="pr-nota">OK: conforme · MU: manutenção urgente · PR: programar revisão · NA: não se aplica. ' + (crit.size ? 'NOTA: (*) itens que impedem o veículo de trafegar e/ou ser operado.' : '') + '</p>' +
+    assImp(['Avaliador: ' + esc(r.avaliador || ''), 'Responsável pela manutenção']) + rodapeImp() + '</div>');
+}
+
+async function imprimirReq(r) {
+  const [antes, depois] = await Promise.all([carregarFotos(idsFotosReq(r)), carregarFotos(['servico_' + r.id])]);
+  const fotos = (lista, tit) => '<div><p class="pr-sec">' + tit + '</p>' + (lista.length ? lista.map(f => '<img src="' + esc(f) + '" alt="' + tit + '">').join('') : '<div class="pr-vazio">Sem foto</div>') + '</div>';
+  const ev = eventosHistorico(r);
+  imprimir('OS ' + (r.numeroOS || r.codigo) + ' ' + r.placa,
+    '<div class="pr-folha">' + cabImp('REQUERIMENTO DE ABERTURA DE OS', r.codigo, r.numeroOS ? 'Nº da OS: ' + r.numeroOS : r.status) +
+    dadosImp([['Placa / prefixo', r.placa], ['Equipamento', r.equipamento], ['KM / HR', r.kmHr], ['Abertura', fmt(r.criadoEm || r.criadoEmLocal)],
+      ['Item', [r.itemNumero, r.itemNome].filter(v => v != null && v !== '').join(' · '), true], ['Classificação', r.classificacao], ['Prioridade', r.prioridade],
+      ['Status', r.status], ['Nº da OS', r.numeroOS], ['Responsável', r.responsavel], ['Fechamento', fmt(r.fechadoEm)],
+      ['Inspeção', r.inspecaoCodigo], ['Avaliador', r.avaliador], ['Ocorrências', r.ocorrencias]]) +
+    '<p class="pr-sec">Divergência</p><div class="pr-texto">' + esc(r.descricao) + '</div>' +
+    '<div class="pr-fotos">' + fotos(antes, 'Antes (divergência)') + fotos(depois, 'Depois (serviço pronto)') + '</div>' +
+    '<p class="pr-sec">Histórico</p><table class="pr-tab"><thead><tr><th>Quando</th><th>Quem</th><th>O que aconteceu</th></tr></thead><tbody>' +
+      ev.map(e => '<tr><td class="nw">' + esc(fmt(e.em)) + '</td><td>' + esc(e.por) + '</td><td>' + esc(e.txt) + (e.obs ? '<i>' + esc(e.obs) + '</i>' : '') + '</td></tr>').join('') + '</tbody></table>' +
+    (r.status === 'Concluído' ? '' : '<p class="pr-sec">Serviço realizado</p><div class="pr-linhas"><span></span><span></span><span></span></div>') +
+    assImp(['Técnico responsável' + (r.responsavel ? ': ' + esc(r.responsavel) : ''), 'Gestor da manutenção']) + rodapeImp() + '</div>');
+}
+
+// ---------- Avisos no aparelho ----------
+// Com o app aberto (ou em segundo plano), o técnico é avisado de OS nova com ele e o gestor de requerimento urgente.
+// Aviso com o app totalmente fechado precisa de um servidor (plano Blaze do Firebase).
+const podeAvisar = () => 'Notification' in window;
+function atualizarBtnAvisos() {
+  const mostrar = podeAvisar() && (gestor() || tecnico()) && Notification.permission === 'default';
+  $$('[data-avisos-btn]').forEach(b => { b.hidden = !mostrar; });
+}
+$$('[data-avisos-btn]').forEach(b => b.addEventListener('click', async () => {
+  try { await Notification.requestPermission(); } catch (e) {}
+  atualizarBtnAvisos();
+  if (Notification.permission === 'granted') toast('Avisos ativados neste aparelho');
+  else if (Notification.permission === 'denied') toast('Avisos bloqueados. Libere nas configurações do navegador.', true);
+}));
+async function avisar(titulo, corpo, tag) {
+  if (!podeAvisar() || Notification.permission !== 'granted') return;
+  const op = { body: corpo, tag, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' };
+  try {
+    // No Android o aviso precisa sair pelo service worker.
+    const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+    if (reg) { await reg.showNotification(titulo, op); return; }
+  } catch (e) {}
+  try { new Notification(titulo, op); } catch (e) {}
+}
+/** Documentos que apareceram desde a última leitura. A primeira leitura do servidor só marca o que já existe. */
+function novidades(chave, snap) {
+  const v = novidades.vistos[chave] || (novidades.vistos[chave] = { pronto: false, ids: new Set() });
+  const novos = snap.docs.filter(d => !v.ids.has(d.id));
+  snap.docs.forEach(d => v.ids.add(d.id));
+  if (!v.pronto) { if (!snap.metadata.fromCache) v.pronto = true; return []; }
+  return novos.map(d => ({ id: d.id, ...d.data() }));
+}
+novidades.vistos = {};
 
 // ---------- Relatório do equipamento ----------
 // Ao tocar num quadrado: disponibilidade, tempo parado, uso do KM / horímetro, OS e itens que mais dão problema,
@@ -1340,7 +1556,7 @@ async function abrirRelatorio(eq) {
     const r = calcRelatorio(eq, insps, reqs, Number($('#relPer').value));
     const kpi = (lbl, val, sub, alerta) => '<div class="kpi' + (alerta ? ' alert' : '') + '"><span class="lbl">' + lbl + '</span><span class="val">' + val + '</span><span class="sub">' + sub + '</span></div>';
     const pct = r.disponibilidade == null ? '—' : r.disponibilidade + '%';
-    $('#relDados').innerHTML = !insps.length ? '<div class="empty"><h3>Ainda sem checklist</h3><p>O relatório aparece depois do primeiro checklist deste equipamento.</p></div>' :
+    $('#relDados').innerHTML = !insps.length ? '<div class="empty"><h3>Ainda sem checklist</h3><p>O relatório aparece depois do primeiro checklist deste equipamento.</p></div><div id="relPrev"></div>' :
       (r.parAtual ? '<div class="callout err">Parado há <b>' + fmtDias(r.parAtual.dias) + '</b>, desde ' + fmtData(r.parAtual.ini) + ' (último checklist não liberado).</div>' : '') +
       '<div class="kpis rel-kpis">' +
         kpi('Disponibilidade', pct, r.liberados + ' de ' + r.total + ' checklists liberados', r.disponibilidade != null && r.disponibilidade < 80) +
@@ -1350,6 +1566,7 @@ async function abrirRelatorio(eq) {
         kpi('OS no período', r.osPer, 'MU ' + r.osMU + ' · PR ' + r.osPR + ' · ' + r.osAbertas.length + ' em aberto agora', r.osAbertas.length > 0) +
         kpi('Tempo médio da OS', r.mediaOS == null ? '—' : fmtDias(r.mediaOS), r.osConcluidas + ' concluída(s) no período') +
       '</div>' +
+      '<div id="relPrev"></div>' +
       '<div><p class="section-t">Últimos 30 dias</p><div class="rel-faixa">' + r.faixa.map(f => '<span class="st-' + f.st + (f.insp ? ' tem' : '') + '" data-dia="' + f.d + '" title="' + fmtData(f.d) + ': ' + ST_EQ[f.st].nome.replace(' hoje', '') + '"></span>').join('') + '</div>' +
         '<div class="rel-faixa-leg"><span>' + fmtData(r.faixa[0].d).slice(0, 5) + '</span><span class="chart-leg">' + ['ok', 'mu', 'pr', 'nada'].map(k => '<span><i class="st-' + k + '" style="background:var(--st)"></i>' + ST_EQ[k].nome.replace(' hoje', '') + '</span>').join('') + '</span><span>hoje</span></div></div>' +
       (un ? '<div><p class="section-t">' + (un === 'h' ? 'Horímetro' : 'KM') + ' no período</p>' + graficoLeituras(r.leituras, un) + '</div>' : '') +
@@ -1357,8 +1574,8 @@ async function abrirRelatorio(eq) {
           '<div class="hbar"><span class="t" title="' + esc(k) + '">' + esc(k) + '</span><span class="v">' + v + '</span><div class="track"><span style="width:' + (v / r.topItens[0][1] * 100) + '%"></span></div></div>').join('') + '</div>' : '<p class="hint">Nenhuma divergência no período.</p>') + '</div>' +
         '<div><p class="section-t">OS em aberto</p>' + (r.osAbertas.length ? '<ul class="rel-os">' + r.osAbertas.map(o => '<li data-req="' + esc(o.id) + '"><span><b>' + esc(o.itemNome) + '</b><small>' + esc(o.codigo) + ' · ' + fmt(o.criadoEm || o.criadoEmLocal).slice(0, 10) + (o.responsavel ? ' · ' + esc(o.responsavel) : '') + '</small></span><span class="pill s-' + slug(o.status) + '">' + esc(o.status) + '</span></li>').join('') + '</ul>' : '<p class="hint">Nenhuma OS em aberto.</p>') + '</div></div>';
   };
-  $('#relPer').onchange = pintar;
-  pintar();
+  $('#relPer').onchange = () => { pintar(); pintarPrev(eq); };
+  pintar(); pintarPrev(eq);
   $('#relDados').addEventListener('click', e => {
     const dia = e.target.closest('.rel-faixa .tem');
     if (dia) { const i = insps.find(x => x.dataInspecao === dia.dataset.dia); if (i) abrirInsp(i); return; }

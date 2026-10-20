@@ -81,6 +81,22 @@ service cloud.firestore {
       allow update, delete: if gestor();
     }
 
+    function fotoValida(d) {
+      return d.dados is string && d.dados.matches('data:image/jpeg;base64,.*') && d.dados.size() < 900000;
+    }
+    // Foto do serviço pronto ("servico_<requerimento>"): o gestor ou o técnico responsável pela OS; pode ser trocada.
+    function fotoServico(id) {
+      let d = request.resource.data;
+      return ativo()
+        && d.reqId is string
+        && id == 'servico_' + d.reqId
+        && d.criadoPor == request.auth.uid
+        && fotoValida(d)
+        && exists(caminho('requerimentos', d.reqId))
+        && (gestor() || (perfil().papel == 'tecnico'
+          && get(caminho('requerimentos', d.reqId)).data.get('responsavelUid', '') == request.auth.uid));
+    }
+
     // Foto de uma divergência: só nasce junto com a inspeção nova, uma por item, até ~650 KB.
     match /fotos/{id} {
       allow read: if ativo();
@@ -89,11 +105,22 @@ service cloud.firestore {
         && request.resource.data.itemNumero is int
         && request.resource.data.inspecaoId is string
         && id == request.resource.data.inspecaoId + '_' + string(request.resource.data.itemNumero)
-        && request.resource.data.dados is string
-        && request.resource.data.dados.matches('data:image/jpeg;base64,.*')
-        && request.resource.data.dados.size() < 900000
+        && fotoValida(request.resource.data)
         && inspecaoNovaDoUsuario(request.resource.data.inspecaoId);
+      allow create, update: if fotoServico(id);
       allow delete: if gestor();
+    }
+
+    // Preventiva por KM / horímetro: o gestor cadastra; o técnico só marca como feita.
+    match /preventivas/{id} {
+      allow read: if ativo();
+      allow create, delete: if gestor();
+      allow update: if gestor()
+        || (ativo() && perfil().papel == 'tecnico'
+          && so(['ultimaFeita', 'ultimaEm', 'feitaPor', 'feitaUid'])
+          && request.resource.data.ultimaFeita is number
+          && request.resource.data.feitaUid == request.auth.uid
+          && request.resource.data.ultimaEm == request.time);
     }
 
     // Técnico responsável pela OS: só muda o status (sem cancelar) e registra uma linha no histórico.

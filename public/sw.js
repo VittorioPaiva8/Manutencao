@@ -1,6 +1,6 @@
 // Service worker: guarda a tela e o SDK do Firebase para o app abrir sem internet.
 // Ao mudar index.html ou app.js, aumente a VERSAO para os celulares baixarem a nova.
-const VERSAO = 'chk-v3';
+const VERSAO = 'chk-v4';
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1/';
 const ARQUIVOS = [
   './', './index.html', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png',
@@ -41,4 +41,13 @@ self.addEventListener('fetch', e => {
     if (r.ok || r.type === 'opaque') { const copia = r.clone(); caches.open(VERSAO).then(c => c.put(req, copia)); }
     return r;
   })));
+});
+
+// Toque no aviso (OS nova, requerimento urgente): abre o app que já está aberto ou um novo.
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+    const c = cs.find(x => 'focus' in x);
+    return c ? c.focus() : self.clients.openWindow('./');
+  }));
 });
