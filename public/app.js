@@ -1169,9 +1169,17 @@ const ST_EQ = {
   ok: { nome: 'Aprovado', ic: '<path d="M6 12.5l4 4 8-9" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' },
   mu: { nome: 'MU', ic: '<path d="M12 6.5v7" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="17.5" r="1.6" fill="currentColor"/>' },
   pr: { nome: 'PR', ic: '<circle cx="12" cy="12" r="6.5" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M12 8.5V12l2.5 1.8" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>' },
-  nada: { nome: 'Sem checklist hoje', ic: '<path d="M7 12h10" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>' },
+  nada: { nome: 'Sem checklist hoje', curto: 'Sem checklist', ic: '<path d="M7 12h10" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>' },
 };
-const icEq = st => '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' + ST_EQ[st].ic + '</svg>';
+// Ícones de linha dos detalhes do card (equipe, KM / horímetro, quem fez o checklist) e do botão de editar.
+const linha = d => '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+const IC_LINHA = {
+  equipe: linha('<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"/><path d="M16 5.2a3 3 0 0 1 0 5.6M17.5 14.6c1.6.6 2.7 2.2 3 4.4"/>'),
+  medidor: linha('<path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 13l3.5-3.5"/><circle cx="12" cy="13" r="1"/>'),
+  checklist: linha('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM8.5 12.5l2 2 4-4"/>'),
+  lapis: linha('<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>'),
+};
+const icEq = st => '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' + ST_EQ[st].ic + '</svg>';
 function statusHoje(e) {
   const i = S.insp.find(x => x.placaId === e.id && x.dataInspecao === hojeISO());
   if (!i) return { st: 'nada', insp: null };
@@ -1194,14 +1202,16 @@ function renderEquip() {
   const g = gestor();
   $('#eqGrid').innerHTML = vis.length ? vis.map(({ e, st, insp }) => {
     const a = leituraAtual(e);
-    const info = [e.equipe, a ? fmtNum(a.valor) + ' ' + (UNID[e.tipoMedidor] || '') : ''].filter(Boolean).join(' · ');
     return '<div class="eq-card st-' + st + '" role="button" tabindex="0" data-eq="' + esc(e.id) + '" aria-label="' + esc((e.equipamento || e.placa) + ': ' + ST_EQ[st].nome) + '">' +
-      '<span class="eq-topo"><span class="eq-sim">' + icEq(st) + '</span><span class="eq-st">' + ST_EQ[st].nome + '</span></span>' +
+      '<span class="eq-selo"><span class="eq-sim">' + icEq(st) + '</span>' + (ST_EQ[st].curto || ST_EQ[st].nome) + '</span>' +
+      (g ? '<button type="button" class="eq-lapis" data-edit-eq="' + esc(e.id) + '" aria-label="Editar ' + esc(e.placa) + '" title="Editar">' + IC_LINHA.lapis + '</button>' : '') +
       '<span class="eq-nome">' + (esc(e.equipamento) || esc(e.placa)) + '</span>' +
       '<span class="eq-placa">' + esc(e.placa) + '</span>' +
-      (info ? '<span class="eq-info">' + esc(info) + '</span>' : '') +
-      (insp ? '<span class="eq-quem">Checklist: ' + esc(insp.avaliador || '') + (insp.pend ? ' <span class="tag-pend">a enviar</span>' : '') + '</span>' : '') +
-      (g ? '<button type="button" class="btn sm" data-edit-eq="' + esc(e.id) + '">Editar</button>' : '') +
+      '<span class="eq-meta">' +
+        (e.equipe ? '<span>' + IC_LINHA.equipe + esc(e.equipe) + '</span>' : '') +
+        (a ? '<span>' + IC_LINHA.medidor + fmtNum(a.valor) + ' ' + (UNID[e.tipoMedidor] || '') + '</span>' : '') +
+        (insp ? '<span>' + IC_LINHA.checklist + esc(insp.avaliador || 'Checklist') + (insp.criadoEm || insp.criadoEmLocal ? ' · ' + fmt(insp.criadoEm || insp.criadoEmLocal).slice(-5) : '') + (insp.pend ? ' <span class="tag-pend">a enviar</span>' : '') + '</span>' : '') +
+      '</span>' +
     '</div>';
   }).join('') : '<div class="block" style="grid-column:1/-1"><div class="empty"><h3>' + (S.equip.length ? 'Nenhum equipamento neste filtro' : 'Nenhum equipamento cadastrado') + '</h3><p>' +
     (S.equip.length ? 'Tente outra busca ou toque de novo na cor para tirar o filtro.' : g ? 'Use o botão "+ Novo equipamento" para cadastrar o primeiro.' : 'O gestor cadastra os equipamentos.') + '</p></div></div>';
