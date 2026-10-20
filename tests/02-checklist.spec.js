@@ -162,3 +162,14 @@ test('"Marcar restantes como OK" e a contagem', async ({ page }) => {
   await expect(page.locator('#cNA')).toHaveText('1');
   await expect(page.locator('#cFalta')).toHaveText('0');
 });
+
+test('legenda do item crítico (*) só aparece quando algum item está marcado como crítico', async ({ page }) => {
+  await aba(page, 'check');
+  await expect(page.locator('#guiaCrit')).toBeHidden();
+  await expect(page.locator('#itens .crit')).toHaveCount(0);
+  await gravar('config/checklist', { criticos: [23] });
+  await expect(page.locator('#guiaCrit')).toBeVisible();
+  await expect(page.locator('#it23 .crit')).toBeVisible();
+  await gravar('config/checklist', { criticos: [] });
+  await expect(page.locator('#guiaCrit')).toBeHidden();
+});

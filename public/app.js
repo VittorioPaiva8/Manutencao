@@ -357,6 +357,8 @@ function todosItens() {
 function montarItens() {
   const inativos = new Set(S.cfg.inativos || []);
   S.itens = todosItens().filter(it => !inativos.has(it.numero));
+  // A legenda do (*) só aparece quando o gestor marcou algum item como crítico.
+  $('#guiaCrit').hidden = !S.itens.some(it => it.critico);
   $('#itens').innerHTML = S.itens.map(it => {
     const r = respostas[it.numero] || {};
     const div = r.status === 'MU' || r.status === 'PR';

@@ -12,7 +12,7 @@ Nada toca nos dados reais.
 | Arquivo | O que confere |
 |---|---|
 | `tests/01-acesso.spec.js` | Criar conta, aprovação pelo gestor, senha errada, esqueci a senha, cargos, bloquear e excluir usuário, tema claro/escuro, abas de cada cargo |
-| `tests/02-checklist.spec.js` | Registrar checklist, liberação (MU, item crítico, item 50), requerimentos, campos obrigatórios, placa não cadastrada, um por dia, ocorrência repetida, KM e horímetro, foto |
+| `tests/02-checklist.spec.js` | Registrar checklist, liberação (MU, item crítico, item 50), requerimentos, campos obrigatórios, placa não cadastrada, um por dia, ocorrência repetida, KM e horímetro, foto, legenda do item crítico |
 | `tests/03-os.spec.js` | Tratamento da OS pelo gestor, próximo número da OS, técnico em Minhas OS, histórico, operador só lê, filtros, Finalizados e CSV |
 | `tests/04-gestao.spec.js` | Equipamentos, itens do checklist (novo, renomear, desativar, crítico, excluir, restaurar), painel do dia, checklist completo, paginação, backup em Excel, correção do KM |
 | `tests/05-regras.spec.js` | Regras de segurança do banco: anti-spam, ninguém vira gestor sozinho, operador e técnico não passam dos limites |
