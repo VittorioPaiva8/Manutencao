@@ -17,7 +17,7 @@ Nada toca nos dados reais.
 | `tests/04-gestao.spec.js` | Itens do checklist (novo, renomear, desativar, crítico, excluir, restaurar), painel do dia, checklist completo, paginação, backup em Excel, correção do KM |
 | `tests/05-regras.spec.js` | Regras de segurança do banco: anti-spam, ninguém vira gestor sozinho, operador e técnico não passam dos limites |
 | `tests/06-celular.spec.js` | Tela de celular: menu que abre e fecha, aviso somado no botão, tema e Sair pelo menu, tabelas em cartões, nada passando da largura da tela, campos com 16px (sem zoom no iPhone) |
-| `tests/07-equipamentos.spec.js` | Aba Equipamentos: cadastrar, editar e remover pelo modal, placa repetida, cor de cada quadrado pelo checklist do dia (verde, vermelho, amarelo, cinza), filtro por cor e busca, operador só vê |
+| `tests/07-equipamentos.spec.js` | Aba Equipamentos: cadastrar, editar e remover pelo modal, placa repetida, cor de cada quadrado pelo checklist do dia (verde, vermelho, amarelo, cinza), filtro por cor e busca, operador só vê; relatório ao tocar no quadrado (disponibilidade, tempo médio parado, uso médio, OS, últimos 30 dias) e aviso de parado agora |
 
 ## Regra para toda mudança nova
 

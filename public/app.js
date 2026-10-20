@@ -1221,14 +1221,152 @@ function cliqueEquip(e) {
   if (ed) { abrirEquip(S.equip.find(x => x.id === ed.dataset.editEq)); return; }
   const card = e.target.closest('[data-eq]'); if (!card) return;
   const eq = S.equip.find(x => x.id === card.dataset.eq); if (!eq) return;
-  const { insp } = statusHoje(eq);
-  if (insp) abrirInsp(insp);
-  else if (gestor()) abrirEquip(eq);
-  else toast('Este equipamento ainda não fez o checklist hoje.');
+  abrirRelatorio(eq);
 }
 $('#eqGrid').addEventListener('click', cliqueEquip);
 $('#eqGrid').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-eq]')) { e.preventDefault(); cliqueEquip(e); } });
 $('#btnNovoEq').addEventListener('click', () => abrirEquip(null));
+
+// ---------- Relatório do equipamento ----------
+// Ao tocar num quadrado: disponibilidade, tempo parado, uso do KM / horímetro, OS e itens que mais dão problema,
+// calculados no aparelho a partir de todos os checklists e requerimentos do equipamento.
+const isoDia = d => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
+const isoMenos = n => { const d = new Date(); d.setDate(d.getDate() - n); return isoDia(d); };
+const diffDias = (a, b) => Math.round((Date.UTC(...b.split('-').map((v, i) => i === 1 ? v - 1 : +v)) - Date.UTC(...a.split('-').map((v, i) => i === 1 ? v - 1 : +v))) / 864e5);
+const fmtDias = n => n == null ? '—' : (n < 1 ? 'menos de 1 dia' : fmtNum(n) + (n === 1 ? ' dia' : ' dias'));
+
+/** Paradas: de um checklist "NÃO liberado" até o próximo "SIM". A que ainda não terminou conta até hoje. */
+function paradas(insps) {
+  const hoje = hojeISO(), lista = [];
+  let ini = null;
+  insps.forEach(i => {
+    if (i.liberado === 'NÃO' && !ini) ini = i.dataInspecao;
+    else if (i.liberado === 'SIM' && ini) { lista.push({ ini, fim: i.dataInspecao, dias: Math.max(1, diffDias(ini, i.dataInspecao)) }); ini = null; }
+  });
+  if (ini) lista.push({ ini, fim: null, dias: Math.max(1, diffDias(ini, hoje)), aberta: true });
+  return lista;
+}
+
+function calcRelatorio(eq, todasInsp, todosReqs, periodo) {
+  const hoje = hojeISO();
+  const insps = todasInsp.slice().sort((a, b) => a.dataInspecao.localeCompare(b.dataInspecao));
+  const primeira = insps[0] && insps[0].dataInspecao;
+  const ini = periodo ? isoMenos(periodo - 1) : (primeira || hoje);
+  const dias = Math.max(1, diffDias(ini, hoje) + 1);
+  const noPer = insps.filter(i => i.dataInspecao >= ini);
+  const diasCom = new Set(noPer.map(i => i.dataInspecao)).size;
+  const liberados = noPer.filter(i => i.liberado === 'SIM').length;
+  const pars = paradas(insps).filter(p => (p.fim || hoje) >= ini);
+  const parAtual = pars.find(p => p.aberta);
+  const fechadas = pars.filter(p => !p.aberta);
+  // Uso: diferença entre a primeira e a última leitura do período, dividida pelos dias entre elas.
+  const leit = noPer.filter(i => typeof i.kmHrValor === 'number');
+  let uso = null;
+  if (leit.length >= 2) {
+    const a = leit[0], b = leit[leit.length - 1], d = diffDias(a.dataInspecao, b.dataInspecao);
+    const total = Math.round((b.kmHrValor - a.kmHrValor) * 10) / 10;
+    uso = { total, porDia: d > 0 ? Math.round(total / d * 10) / 10 : null, porChecklist: Math.round(total / (leit.length - 1) * 10) / 10 };
+  }
+  const tempo = r => paraData(r.criadoEm || r.criadoEmLocal);
+  const reqsPer = todosReqs.filter(r => { const d = tempo(r); return d && isoDia(d) >= ini; });
+  const concluidos = todosReqs.filter(r => r.status === 'Concluído' && r.fechadoEm && isoDia(paraData(r.fechadoEm)) >= ini);
+  const durOS = concluidos.map(diasAteFechar).filter(d => d != null);
+  const itens = {};
+  reqsPer.forEach(r => { const k = r.itemNumero + ' · ' + r.itemNome; itens[k] = (itens[k] || 0) + (r.ocorrencias || 1); });
+  return {
+    ini, dias, total: noPer.length, diasCom, liberados,
+    disponibilidade: noPer.length ? Math.round(liberados / noPer.length * 100) : null,
+    paradas: pars.length, parAtual,
+    mediaParado: fechadas.length ? Math.round(fechadas.reduce((s, p) => s + p.dias, 0) / fechadas.length * 10) / 10 : (parAtual ? null : 0),
+    // Dias parados dentro do período (uma parada que começou antes conta só a parte de dentro).
+    diasParado: pars.reduce((s, p) => s + Math.max(1, diffDias(p.ini < ini ? ini : p.ini, p.fim || hoje)), 0),
+    uso, leituras: leit.map(i => ({ d: i.dataInspecao, v: i.kmHrValor })),
+    osPer: reqsPer.length, osMU: reqsPer.filter(r => String(r.classificacao).startsWith('MU')).length, osPR: reqsPer.filter(r => String(r.classificacao).startsWith('PR')).length,
+    osAbertas: todosReqs.filter(r => STATUS_ABERTOS.includes(r.status)).sort((a, b) => (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0)),
+    osConcluidas: concluidos.length, mediaOS: durOS.length ? Math.round(durOS.reduce((s, d) => s + d, 0) / durOS.length * 10) / 10 : null,
+    topItens: Object.entries(itens).sort((a, b) => b[1] - a[1]).slice(0, 5),
+    // Últimos 30 dias, um quadradinho por dia com a cor do checklist daquele dia.
+    faixa: Array.from({ length: 30 }, (_, k) => {
+      const d = isoMenos(29 - k), i = insps.find(x => x.dataInspecao === d), c = i && (i.contagem || {});
+      return { d, st: !i ? 'nada' : c.MU ? 'mu' : c.PR ? 'pr' : 'ok', insp: i };
+    }),
+  };
+}
+
+function graficoLeituras(pts, un) {
+  if (pts.length < 2) return '<p class="hint">Precisa de pelo menos duas leituras de ' + (un === 'h' ? 'horímetro' : 'KM') + ' no período.</p>';
+  const W = 600, H = 120, P = 6;
+  const t0 = Date.parse(pts[0].d), t1 = Date.parse(pts[pts.length - 1].d) || t0 + 1;
+  const v0 = Math.min(...pts.map(p => p.v)), v1 = Math.max(...pts.map(p => p.v)) || v0 + 1;
+  const x = p => P + (Date.parse(p.d) - t0) / Math.max(1, t1 - t0) * (W - 2 * P);
+  const y = p => H - P - (p.v - v0) / Math.max(1, v1 - v0) * (H - 2 * P);
+  const linha = pts.map((p, i) => (i ? 'L' : 'M') + x(p).toFixed(1) + ' ' + y(p).toFixed(1)).join(' ');
+  return '<svg class="rel-graf" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Leituras de ' + fmtNum(v0) + ' a ' + fmtNum(v1) + ' ' + un + '">' +
+    '<path d="' + linha + ' L' + x(pts[pts.length - 1]).toFixed(1) + ' ' + H + ' L' + x(pts[0]).toFixed(1) + ' ' + H + 'Z" class="area"/><path d="' + linha + '" class="linha"/></svg>' +
+    '<div class="rel-graf-leg"><span>' + fmtData(pts[0].d) + ' · ' + fmtNum(v0) + ' ' + un + '</span><span>' + fmtData(pts[pts.length - 1].d) + ' · ' + fmtNum(v1) + ' ' + un + '</span></div>';
+}
+
+async function abrirRelatorio(eq) {
+  const { st, insp: hoje } = statusHoje(eq);
+  const un = UNID[eq.tipoMedidor] || '';
+  $('#modalRoot').innerHTML =
+    '<div class="ov" id="ov"><div class="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="relTit">' +
+      '<div class="block-h"><h2 id="relTit">' + esc(eq.equipamento || eq.placa) + ' · ' + esc(eq.placa) + '</h2><button class="modal-x" id="mX" aria-label="Fechar">×</button></div>' +
+      '<div class="modal-b" id="relCorpo"><div class="rel-topo"><span class="eq-selo st-' + st + '"><span class="eq-sim">' + icEq(st) + '</span>' + ST_EQ[st].nome + '</span>' +
+        '<select class="inp" id="relPer" aria-label="Período"><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="365">Último ano</option><option value="0">Desde o primeiro checklist</option></select></div>' +
+        '<div id="relDados"><p class="dim">Carregando o histórico…</p></div></div>' +
+      '<div class="modal-f">' + (gestor() ? '<button class="btn" id="relEditar" style="margin-right:auto">Editar cadastro</button>' : '') +
+        (hoje ? '<button class="btn dark" id="relHoje">Ver checklist de hoje</button>' : '') + '<button class="btn" id="mCancelar">Fechar</button></div>' +
+    '</div></div>';
+  const fechar = () => { $('#modalRoot').innerHTML = ''; };
+  $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
+  $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') fechar(); });
+  if ($('#relEditar')) $('#relEditar').onclick = () => abrirEquip(eq);
+  if (hoje) $('#relHoje').onclick = () => abrirInsp(hoje);
+
+  let insps = S.insp.filter(i => i.placaId === eq.id), reqs = [];
+  try {
+    const [qi, qr] = await Promise.all([
+      getDocs(query(collection(db, 'inspecoes'), where('placaId', '==', eq.id))),
+      getDocs(query(collection(db, 'requerimentos'), where('placa', '==', eq.placa))),
+    ]);
+    insps = qi.docs.map(d => ({ id: d.id, ...d.data() }));
+    reqs = qr.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (ex) { reqs = [...S.reqAbertos, ...S.reqRecentes].filter(r => r.placa === eq.placa); }
+  if (!$('#relDados')) return; // fechou enquanto carregava
+  reqs = [...new Map(reqs.map(r => [r.id, r])).values()];
+
+  const pintar = () => {
+    const r = calcRelatorio(eq, insps, reqs, Number($('#relPer').value));
+    const kpi = (lbl, val, sub, alerta) => '<div class="kpi' + (alerta ? ' alert' : '') + '"><span class="lbl">' + lbl + '</span><span class="val">' + val + '</span><span class="sub">' + sub + '</span></div>';
+    const pct = r.disponibilidade == null ? '—' : r.disponibilidade + '%';
+    $('#relDados').innerHTML = !insps.length ? '<div class="empty"><h3>Ainda sem checklist</h3><p>O relatório aparece depois do primeiro checklist deste equipamento.</p></div>' :
+      (r.parAtual ? '<div class="callout err">Parado há <b>' + fmtDias(r.parAtual.dias) + '</b>, desde ' + fmtData(r.parAtual.ini) + ' (último checklist não liberado).</div>' : '') +
+      '<div class="kpis rel-kpis">' +
+        kpi('Disponibilidade', pct, r.liberados + ' de ' + r.total + ' checklists liberados', r.disponibilidade != null && r.disponibilidade < 80) +
+        kpi('Tempo médio parado', r.mediaParado == null ? '—' : fmtDias(r.mediaParado), r.paradas + (r.paradas === 1 ? ' parada' : ' paradas') + ' · ' + fmtDias(r.diasParado) + ' no total', r.paradas > 0) +
+        kpi('Uso médio', r.uso && r.uso.porDia != null ? fmtNum(r.uso.porDia) + ' ' + un + '/dia' : '—', r.uso ? fmtNum(r.uso.total) + ' ' + un + ' no período · ' + fmtNum(r.uso.porChecklist) + ' ' + un + ' por checklist' : (un ? 'sem leituras suficientes' : 'equipamento sem medidor')) +
+        kpi('Checklists feitos', r.diasCom + ' de ' + r.dias, 'dias com checklist (' + Math.round(r.diasCom / r.dias * 100) + '%)', r.diasCom / r.dias < 0.5) +
+        kpi('OS no período', r.osPer, 'MU ' + r.osMU + ' · PR ' + r.osPR + ' · ' + r.osAbertas.length + ' em aberto agora', r.osAbertas.length > 0) +
+        kpi('Tempo médio da OS', r.mediaOS == null ? '—' : fmtDias(r.mediaOS), r.osConcluidas + ' concluída(s) no período') +
+      '</div>' +
+      '<div><p class="section-t">Últimos 30 dias</p><div class="rel-faixa">' + r.faixa.map(f => '<span class="st-' + f.st + (f.insp ? ' tem' : '') + '" data-dia="' + f.d + '" title="' + fmtData(f.d) + ': ' + ST_EQ[f.st].nome.replace(' hoje', '') + '"></span>').join('') + '</div>' +
+        '<div class="rel-faixa-leg"><span>' + fmtData(r.faixa[0].d).slice(0, 5) + '</span><span class="chart-leg">' + ['ok', 'mu', 'pr', 'nada'].map(k => '<span><i class="st-' + k + '" style="background:var(--st)"></i>' + ST_EQ[k].nome.replace(' hoje', '') + '</span>').join('') + '</span><span>hoje</span></div></div>' +
+      (un ? '<div><p class="section-t">' + (un === 'h' ? 'Horímetro' : 'KM') + ' no período</p>' + graficoLeituras(r.leituras, un) + '</div>' : '') +
+      '<div class="rel-2col"><div><p class="section-t">Itens que mais deram problema</p>' + (r.topItens.length ? '<div class="hbars">' + r.topItens.map(([k, v]) =>
+          '<div class="hbar"><span class="t" title="' + esc(k) + '">' + esc(k) + '</span><span class="v">' + v + '</span><div class="track"><span style="width:' + (v / r.topItens[0][1] * 100) + '%"></span></div></div>').join('') + '</div>' : '<p class="hint">Nenhuma divergência no período.</p>') + '</div>' +
+        '<div><p class="section-t">OS em aberto</p>' + (r.osAbertas.length ? '<ul class="rel-os">' + r.osAbertas.map(o => '<li data-req="' + esc(o.id) + '"><span><b>' + esc(o.itemNome) + '</b><small>' + esc(o.codigo) + ' · ' + fmt(o.criadoEm || o.criadoEmLocal).slice(0, 10) + (o.responsavel ? ' · ' + esc(o.responsavel) : '') + '</small></span><span class="pill s-' + slug(o.status) + '">' + esc(o.status) + '</span></li>').join('') + '</ul>' : '<p class="hint">Nenhuma OS em aberto.</p>') + '</div></div>';
+  };
+  $('#relPer').onchange = pintar;
+  pintar();
+  $('#relDados').addEventListener('click', e => {
+    const dia = e.target.closest('.rel-faixa .tem');
+    if (dia) { const i = insps.find(x => x.dataInspecao === dia.dataset.dia); if (i) abrirInsp(i); return; }
+    const li = e.target.closest('[data-req]');
+    const o = li && reqs.find(x => x.id === li.dataset.req);
+    if (o) abrirReq(o);
+  });
+}
 
 /** Modal de cadastro: `eq` nulo cria um novo; senão edita (a placa não muda, porque é o ID). */
 function abrirEquip(eq) {

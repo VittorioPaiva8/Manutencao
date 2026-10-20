@@ -1,6 +1,6 @@
 // Aba Equipamentos: cadastro pelo modal e quadrados coloridos pelo checklist do dia
 // (verde aprovado, vermelho MU, amarelo PR, cinza sem checklist hoje).
-const { test, expect, criarConta, equipamento, buscar, entrar, aba, preencherChecklist, diasAtras } = require('./ajuda');
+const { test, expect, criarConta, equipamento, buscar, gravarVarios, entrar, aba, preencherChecklist, diasAtras, hojeISO } = require('./ajuda');
 
 const quadrado = (page, id) => page.locator(`#eqGrid [data-eq="${id}"]`);
 
@@ -89,8 +89,9 @@ test('cor de cada quadrado segue o checklist de hoje, e as cores filtram', async
   await expect(page.locator('#eqGrid [data-eq]')).toHaveCount(1);
   await page.fill('#eqBusca', '');
 
-  // Tocar num quadrado com checklist abre o checklist do dia.
+  // Tocar num quadrado abre o relatório; dali dá para ver o checklist do dia.
   await quadrado(page, 'MU01').click();
+  await page.click('#relHoje');
   await expect(page.locator('#mItens')).toContainText('Freio');
 });
 
@@ -102,7 +103,10 @@ test('operador vê os quadrados mas não cadastra nem edita', async ({ page }) =
   await expect(quadrado(page, 'ABC1D23')).toBeVisible();
   await expect(page.locator('[data-edit-eq]')).toHaveCount(0);
   await quadrado(page, 'ABC1D23').click();
-  await expect(page.locator('#toastRoot')).toContainText('ainda não fez o checklist hoje');
+  await expect(page.locator('#relDados')).toContainText('Ainda sem checklist');
+  await expect(page.locator('#relHoje')).toHaveCount(0);
+  await expect(page.locator('#relEditar')).toHaveCount(0);
+  await page.click('#mCancelar');
   // Depois do checklist, o quadrado fica verde na hora.
   await preencherChecklist(page, { placa: 'ABC1D23' });
   await aba(page, 'eq');
@@ -114,4 +118,60 @@ test('cadastros não tem mais a lista de equipamentos', async ({ page }) => {
   await aba(page, 'cad');
   await expect(page.locator('#v-cad')).not.toContainText('Placa / prefixo');
   await expect(page.locator('#cfgItens tr')).toHaveCount(50);
+});
+
+test('relatório do equipamento: disponibilidade, tempo parado, uso médio, OS e últimos 30 dias', async ({ page }) => {
+  await equipamento('REL01', 'Caminhão basculante', { tipoMedidor: 'KM', medidorAtual: 1000 });
+  // Histórico: liberado, parado 3 dias (MU), liberado, parado 2 dias, liberado.
+  const hist = [[10, 'SIM', 1000], [8, 'NÃO', 1100, 1], [6, 'NÃO', 1150, 1], [5, 'SIM', 1300], [3, 'NÃO', 1400, 0, 1], [1, 'SIM', 1500], [0, 'SIM', 1600]];
+  const dia = n => n ? diasAtras(n) : hojeISO();
+  const quando = n => new Date(Date.now() - n * 864e5);
+  await gravarVarios([
+    ...hist.map(([n, lib, km, mu = 0, pr = 0], k) => ['inspecoes/REL01_' + dia(n), {
+      codigo: 'CHK-' + k, placaId: 'REL01', placa: 'REL01', equipamento: 'Caminhão basculante', dataInspecao: dia(n), avaliador: 'Op',
+      liberado: lib, kmHrValor: km, kmHrTipo: 'KM', kmHr: km + ' km', contagem: { OK: 50 - mu - pr, MU: mu, PR: pr, NA: 0 }, respostas: [], criadoEmLocal: quando(n).getTime(),
+    }]),
+    ['requerimentos/R1', { codigo: 'REQ-1', placa: 'REL01', itemNumero: 23, itemNome: 'FREIOS', classificacao: 'MU - Manutenção urgente', status: 'Concluído', ocorrencias: 2, criadoEm: quando(8), criadoEmLocal: quando(8).getTime(), fechadoEm: quando(5) }],
+    ['requerimentos/R2', { codigo: 'REQ-2', placa: 'REL01', itemNumero: 6, itemNome: 'VAZAMENTO DAS MANGUEIRAS', classificacao: 'PR - Programar revisão', status: 'OS aberta', ocorrencias: 1, criadoEm: quando(3), criadoEmLocal: quando(3).getTime(), fechadoEm: null, responsavel: 'Carlos' }],
+    ['requerimentos/OUTRO', { codigo: 'REQ-X', placa: 'OUTRA', itemNumero: 1, itemNome: 'X', classificacao: 'MU - Manutenção urgente', status: 'Aberto', ocorrencias: 1, criadoEm: quando(1), criadoEmLocal: quando(1).getTime() }],
+  ]);
+  await entrar(page, await criarConta('Gestora', 'g@teste.com', 'gestor'));
+  await aba(page, 'eq');
+  await quadrado(page, 'REL01').click();
+  const kpis = page.locator('#relDados .rel-kpis');
+  await expect(kpis).toContainText('Disponibilidade57%4 de 7 checklists liberados');
+  await expect(kpis).toContainText('Tempo médio parado2,5 dias2 paradas · 5 dias no total');
+  await expect(kpis).toContainText('Uso médio60 km/dia600 km no período · 100 km por checklist');
+  await expect(kpis).toContainText('Checklists feitos7 de 30');
+  await expect(kpis).toContainText('OS no período2MU 1 · PR 1 · 1 em aberto agora');
+  await expect(kpis).toContainText('Tempo médio da OS3 dias1 concluída(s)');
+  await expect(page.locator('#relDados')).not.toContainText('Parado há');
+
+  // Faixa dos últimos 30 dias: uma cor por dia.
+  await expect(page.locator('.rel-faixa span')).toHaveCount(30);
+  await expect(page.locator('.rel-faixa span.tem')).toHaveCount(7);
+  await expect(page.locator('.rel-faixa span').last()).toHaveClass(/st-ok/);
+  await expect(page.locator(`.rel-faixa [data-dia="${diasAtras(8)}"]`)).toHaveClass(/st-mu/);
+  await expect(page.locator(`.rel-faixa [data-dia="${diasAtras(3)}"]`)).toHaveClass(/st-pr/);
+  await expect(page.locator('.rel-graf')).toBeVisible();
+
+  await expect(page.locator('#relDados .hbar').first()).toContainText('23 · FREIOS');
+  await expect(page.locator('#relDados .rel-os li')).toHaveCount(1);
+  await page.locator('#relDados .rel-os li').click();
+  await expect(page.locator('#mStatus')).toHaveValue('OS aberta');
+});
+
+test('relatório avisa quando o equipamento está parado agora', async ({ page }) => {
+  await equipamento('PAR01', 'Retro');
+  await gravarVarios([
+    ['inspecoes/PAR01_a', { codigo: 'C1', placaId: 'PAR01', dataInspecao: diasAtras(4), liberado: 'SIM', contagem: { OK: 50 }, respostas: [], criadoEmLocal: 1 }],
+    ['inspecoes/PAR01_b', { codigo: 'C2', placaId: 'PAR01', dataInspecao: diasAtras(2), liberado: 'NÃO', contagem: { OK: 49, MU: 1 }, respostas: [], criadoEmLocal: 2 }],
+  ]);
+  await entrar(page, await criarConta('Op', 'op@teste.com'));
+  await aba(page, 'eq');
+  await quadrado(page, 'PAR01').click();
+  await expect(page.locator('#relDados .callout')).toContainText('Parado há 2 dias');
+  await expect(page.locator('#relDados .rel-kpis')).toContainText('Disponibilidade50%');
+  await page.selectOption('#relPer', '0');
+  await expect(page.locator('#relDados .rel-kpis')).toContainText('Checklists feitos2 de 5');
 });

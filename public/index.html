@@ -303,6 +303,31 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
 .col-bar b{position:absolute;left:0;right:0;text-align:center;font-size:11px;color:var(--fg-strong);font-variant-numeric:tabular-nums}
 .col small{font-size:11px;color:var(--muted);text-transform:capitalize;white-space:nowrap}
 .hbars{display:flex;flex-direction:column;gap:10px}
+/* Relatório do equipamento */
+.rel-topo{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.rel-topo .inp{width:auto}
+#relDados{display:flex;flex-direction:column;gap:18px}
+.rel-kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.rel-kpis .kpi .val{font-size:22px}
+.rel-faixa{display:grid;grid-template-columns:repeat(30,minmax(0,1fr));gap:3px;margin-top:8px}
+.rel-faixa span{height:26px;border-radius:4px;background:var(--st);opacity:.9}
+.rel-faixa span.st-nada{background:var(--line);opacity:1}
+.rel-faixa span.tem{cursor:pointer}
+.rel-faixa span.tem:hover{opacity:1;outline:2px solid var(--fg-strong);outline-offset:1px}
+.rel-faixa-leg{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:11px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
+.rel-faixa-leg .chart-leg{margin:0}
+.rel-graf{width:100%;height:120px;display:block;margin-top:8px}
+.rel-graf .linha{fill:none;stroke:var(--fg-strong);stroke-width:2;vector-effect:non-scaling-stroke}
+.rel-graf .area{fill:var(--fg-strong);opacity:.06}
+.rel-graf-leg{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.rel-2col{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+.rel-2col .section-t{margin-bottom:8px}
+.rel-os{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.rel-os li{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}
+.rel-os li:hover{border-color:var(--line-strong)}
+.rel-os b{display:block;font-size:13px;color:var(--fg-strong);font-weight:600}
+.rel-os small{color:var(--muted);font-size:11px}
+@media (max-width:760px){.rel-faixa{gap:2px}.rel-faixa span{height:22px;border-radius:3px}.rel-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .hbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:12px}
 .hbar .t{color:var(--fg-strong);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hbar .v{color:var(--muted);font-variant-numeric:tabular-nums;font-weight:600}
@@ -467,7 +492,7 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
   <!-- EQUIPAMENTOS -->
   <section class="view" id="v-eq" hidden>
     <div class="page-h">
-      <div><h2>Equipamentos</h2><p>Cada quadrado é um equipamento, com a cor do checklist de hoje. Toque em um para ver o checklist do dia.</p></div>
+      <div><h2>Equipamentos</h2><p>Cada quadrado é um equipamento, com a cor do checklist de hoje. Toque em um para ver o relatório dele: tempo parado, uso médio, OS e histórico.</p></div>
       <button type="button" class="btn primary so-gestor" id="btnNovoEq" hidden>+ Novo equipamento</button>
     </div>
     <div class="eq-barra">
