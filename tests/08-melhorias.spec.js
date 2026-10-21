@@ -225,3 +225,24 @@ test('avisos no aparelho: técnico recebe OS nova e gestor recebe requerimento u
   await expect(o.locator('[data-avisos-btn]')).toHaveCount(2);
   await expect(o.locator('.top-r [data-avisos-btn]')).toBeHidden();
 });
+
+test('requerimentos: filtro pela data de abertura', async ({ page }) => {
+  const dias = n => new Date(Date.now() - n * 864e5);
+  await requerimento('HOJE');
+  await requerimento('SEMANA', { criadoEm: dias(5), criadoEmLocal: dias(5).getTime() });
+  await requerimento('VELHO', { criadoEm: dias(60), criadoEmLocal: dias(60).getTime() });
+  await entrar(page, await criarConta('Op', 'op@teste.com'));
+  await aba(page, 'req');
+  const linhas = page.locator('#reqTbody tr[data-id]');
+  await expect(linhas).toHaveCount(3);
+  await page.selectOption('#rPeriodo', 'hoje');
+  await expect(linhas).toHaveCount(1);
+  await expect(linhas.first()).toHaveAttribute('data-id', 'HOJE');
+  await page.selectOption('#rPeriodo', '7');
+  await expect(linhas).toHaveCount(2);
+  await page.selectOption('#rPeriodo', '90');
+  await expect(linhas).toHaveCount(3);
+  await expect(page.locator('#reqCont')).toHaveText('3 requerimento(s)');
+  await page.selectOption('#rPeriodo', '30');
+  await expect(page.locator('#reqCont')).toHaveText('2 requerimento(s)');
+});

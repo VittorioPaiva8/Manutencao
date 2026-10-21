@@ -5,7 +5,8 @@ rules_version = '2';
 // status das OS em que é o responsável; "gestor" trata requerimentos, aprova usuários e mantém os cadastros.
 //
 // Proteção contra envio em massa:
-// - inspeção só para equipamento cadastrado, com ID fixo "<placa>_<data>": um checklist
+// - inspeção só para equipamento cadastrado, com ID fixo "<placa>_<data>" (o primeiro do dia)
+//   ou "<placa>_<data>_2" (o segundo do dia, só depois do primeiro): no máximo dois checklists
 //   por equipamento por dia, e a data precisa estar entre 30 dias atrás e amanhã;
 // - requerimento só nasce no mesmo envio de uma inspeção nova, com ID "<inspeção>_<item>":
 //   no máximo um por item do checklist;
@@ -73,7 +74,9 @@ service cloud.firestore {
         && request.resource.data.criadoEm == request.time
         && request.resource.data.placaId is string
         && request.resource.data.dataInspecao.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
-        && id == request.resource.data.placaId + '_' + request.resource.data.dataInspecao
+        && (id == request.resource.data.placaId + '_' + request.resource.data.dataInspecao
+          || (id == request.resource.data.placaId + '_' + request.resource.data.dataInspecao + '_2'
+            && exists(caminho('inspecoes', request.resource.data.placaId + '_' + request.resource.data.dataInspecao))))
         && exists(caminho('equipamentos', request.resource.data.placaId))
         && dataPermitida(request.resource.data.dataInspecao)
         && request.resource.data.respostas is list

@@ -585,6 +585,9 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
       <div class="filters">
         <input class="inp" id="rBusca" type="search" placeholder="Buscar código, placa, equipamento, item">
         <select class="inp" id="rStatus"></select>
+        <select class="inp" id="rPeriodo" aria-label="Aberto em">
+          <option value="">Qualquer data</option><option value="hoje">Abertos hoje</option><option value="7">Últimos 7 dias</option><option value="mes">Este mês</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="ano">Este ano</option>
+        </select>
         <select class="inp" id="rPrio"><option value="">Todas as prioridades</option><option>ALTA</option><option>NORMAL</option></select>
       </div>
       <div class="tbl-wrap"><table>

@@ -27,6 +27,16 @@ test('checklist válido passa; repetido no mesmo dia, de equipamento inexistente
   expect(await como(op).lote(loteChecklist(op, { data: diasAtras(1), inspId: 'qualquer' }))).toBe(NEGADO);
 });
 
+test('segundo checklist do dia ("_2") só depois do primeiro; terceiro não', async () => {
+  const op = await criarConta('Op', 'op@teste.com');
+  const dia = diasAtras(2), base = 'ABC1D23_' + dia;
+  expect(await como(op).lote(loteChecklist(op, { data: dia, inspId: base + '_2' }))).toBe(NEGADO);
+  expect(await como(op).lote(loteChecklist(op, { data: dia }))).toBe(OK);
+  expect(await como(op).lote(loteChecklist(op, { data: dia, inspId: base + '_2' }))).toBe(OK);
+  expect(await como(op).lote(loteChecklist(op, { data: dia, inspId: base + '_2' }))).not.toBe(OK);
+  expect(await como(op).lote(loteChecklist(op, { data: dia, inspId: base + '_3' }))).toBe(NEGADO);
+});
+
 test('requerimento ou foto sozinhos (sem checklist novo no mesmo envio) são recusados', async () => {
   const op = await criarConta('Op', 'op@teste.com');
   expect(await como(op).lote(loteChecklist(op))).toBe(OK);

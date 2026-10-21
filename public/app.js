@@ -521,6 +521,7 @@ $('#placa').addEventListener('input', mostrarMedidor);
 
 // Trava contra cliques repetidos: o botão fica desligado durante o envio e por alguns segundos depois.
 const ESPERA_ENTRE_ENVIOS_MS = 5000;
+const MAX_POR_DIA = 2;
 let enviando = false;
 $('#btnEnviar').addEventListener('click', async () => {
   if (enviando) return;
@@ -557,7 +558,7 @@ async function enviarChecklist() {
     primeiro.scrollIntoView({ behavior: 'smooth', block: 'center' }); return;
   }
 
-  // Só equipamento cadastrado, e um checklist por equipamento por dia (o banco também exige isso).
+  // Só equipamento cadastrado, e até dois checklists por equipamento por dia (o banco também exige isso).
   const placa = v('placa').toUpperCase();
   const equip = S.equip.find(e => String(e.placa).toUpperCase() === placa);
   if (!equip) return falhar('A placa ' + placa + ' não está cadastrada. Peça ao gestor para cadastrar o equipamento.');
@@ -578,9 +579,13 @@ async function enviarChecklist() {
     if (rodado > limite && !confirm('Desde a última leitura foram ' + fmtNum(rodado) + ' ' + un + '. Está certo?')) { $('#kmHr').focus(); return; }
   }
 
-  const inspId = equip.id + '_' + dataInspecao;
+  // O primeiro do dia é "<placa>_<data>"; o segundo, "<placa>_<data>_2".
+  let inspId = equip.id + '_' + dataInspecao;
   if (await checklistExiste(inspId)) {
-    return falhar('Já existe um checklist do equipamento ' + placa + ' em ' + fmtData(dataInspecao) + '. Se precisar corrigir, fale com o gestor.');
+    inspId += '_' + MAX_POR_DIA;
+    if (await checklistExiste(inspId)) {
+      return falhar('O equipamento ' + placa + ' já tem ' + MAX_POR_DIA + ' checklists em ' + fmtData(dataInspecao) + ', que é o máximo por dia. Se precisar corrigir, fale com o gestor.');
+    }
   }
 
   const fotos = {};
@@ -688,7 +693,7 @@ function limparFormulario() {
 }
 
 // ---------- Requerimentos ----------
-['#rBusca', '#rStatus', '#rPrio'].forEach(s => $(s).addEventListener('input', () => { paginas.req = 0; renderReq(); }));
+['#rBusca', '#rStatus', '#rPrio', '#rPeriodo'].forEach(s => $(s).addEventListener('input', () => { paginas.req = 0; renderReq(); }));
 $('#pg-req').addEventListener('pagina', renderReq);
 $('#rStatus').innerHTML = '<option value="abertos">Em aberto</option><option value="">Todos os status</option>' + STATUS_REQ.map(s => '<option>' + s + '</option>').join('');
 
@@ -704,11 +709,11 @@ function renderReq() {
     kpi('Com OS aberta', abertos.filter(r => r.status === 'OS aberta').length, 'em execução') +
     kpi('Concluídos no mês', concluidosMes, ini.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
 
-  const q = $('#rBusca').value.trim().toLowerCase(), st = $('#rStatus').value, pr = $('#rPrio').value;
+  const q = $('#rBusca').value.trim().toLowerCase(), st = $('#rStatus').value, pr = $('#rPrio').value, desde = inicioPeriodo($('#rPeriodo').value);
   const base = st === 'abertos'
     ? [...abertos].sort((a, b) => (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0))
     : S.reqRecentes.filter(r => !st || r.status === st);
-  const lista = base.filter(r => (!pr || r.prioridade === pr) &&
+  const lista = base.filter(r => (!pr || r.prioridade === pr) && (!desde || (paraData(r.criadoEm || r.criadoEmLocal) || 0) >= desde) &&
     (!q || [r.codigo, r.placa, r.equipamento, r.itemNome, r.numeroOS].join(' ').toLowerCase().includes(q)));
   $('#reqCont').textContent = lista.length + ' requerimento(s)';
   const maisReq = st !== 'abertos' && S.reqRecentes.length >= LIM.req ? () => { LIM.req += 500; ouvirReqRecentes(); } : null;
@@ -742,12 +747,15 @@ const diasAteFechar = r => {
   const a = paraData(r.criadoEm || r.criadoEmLocal), f = paraData(r.fechadoEm);
   return a && f ? Math.max(0, Math.round((f - a) / 86400000)) : null;
 };
+/** Início do período escolhido nos filtros de data ("mes", "ano", número de dias ou vazio = tudo). */
+function inicioPeriodo(per) {
+  if (per === 'mes') { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; }
+  if (per === 'ano') return new Date(new Date().getFullYear(), 0, 1);
+  if (per === 'hoje') { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+  return per ? new Date(Date.now() - Number(per) * 86400000) : null;
+}
 function filtrarFinalizados() {
-  const q = $('#fBusca').value.trim().toLowerCase(), st = $('#fStatus').value, per = $('#fPeriodo').value;
-  let ini = null;
-  if (per === 'mes') { ini = new Date(); ini.setDate(1); ini.setHours(0, 0, 0, 0); }
-  else if (per === 'ano') { ini = new Date(new Date().getFullYear(), 0, 1); }
-  else if (per) { ini = new Date(Date.now() - Number(per) * 86400000); }
+  const q = $('#fBusca').value.trim().toLowerCase(), st = $('#fStatus').value, ini = inicioPeriodo($('#fPeriodo').value);
   return S.reqFinalizados.filter(r => {
     const f = paraData(r.fechadoEm);
     return (!st || r.status === st) && (!ini || (f && f >= ini)) &&
@@ -1465,7 +1473,7 @@ function paradas(insps) {
 
 function calcRelatorio(eq, todasInsp, todosReqs, periodo) {
   const hoje = hojeISO();
-  const insps = todasInsp.slice().sort((a, b) => a.dataInspecao.localeCompare(b.dataInspecao));
+  const insps = todasInsp.slice().sort((a, b) => a.dataInspecao.localeCompare(b.dataInspecao) || (a.criadoEmLocal || 0) - (b.criadoEmLocal || 0));
   const primeira = insps[0] && insps[0].dataInspecao;
   const ini = periodo ? isoMenos(periodo - 1) : (primeira || hoje);
   const dias = Math.max(1, diffDias(ini, hoje) + 1);
@@ -1503,7 +1511,7 @@ function calcRelatorio(eq, todasInsp, todosReqs, periodo) {
     topItens: Object.entries(itens).sort((a, b) => b[1] - a[1]).slice(0, 5),
     // Últimos 30 dias, um quadradinho por dia com a cor do checklist daquele dia.
     faixa: Array.from({ length: 30 }, (_, k) => {
-      const d = isoMenos(29 - k), i = insps.find(x => x.dataInspecao === d), c = i && (i.contagem || {});
+      const d = isoMenos(29 - k), i = insps.findLast(x => x.dataInspecao === d), c = i && (i.contagem || {});
       return { d, st: !i ? 'nada' : c.MU ? 'mu' : c.PR ? 'pr' : 'ok', insp: i };
     }),
   };
@@ -1578,7 +1586,7 @@ async function abrirRelatorio(eq) {
   pintar(); pintarPrev(eq);
   $('#relDados').addEventListener('click', e => {
     const dia = e.target.closest('.rel-faixa .tem');
-    if (dia) { const i = insps.find(x => x.dataInspecao === dia.dataset.dia); if (i) abrirInsp(i); return; }
+    if (dia) { const i = insps.filter(x => x.dataInspecao === dia.dataset.dia).sort((a, b) => (a.criadoEmLocal || 0) - (b.criadoEmLocal || 0)).pop(); if (i) abrirInsp(i); return; }
     const li = e.target.closest('[data-req]');
     const o = li && reqs.find(x => x.id === li.dataset.req);
     if (o) abrirReq(o);

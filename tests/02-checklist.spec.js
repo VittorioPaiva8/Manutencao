@@ -71,12 +71,15 @@ test('placa não cadastrada é recusada', async ({ page }) => {
   expect(r.texto).toContain('não está cadastrada');
 });
 
-test('só um checklist por equipamento por dia, e data no máximo 30 dias atrás', async ({ page }) => {
+test('até dois checklists por equipamento por dia, e data no máximo 30 dias atrás', async ({ page }) => {
   expect((await preencherChecklist(page, { placa: 'ABC1D23' })).ok).toBe(true);
   await expect.poll(() => listar('inspecoes')).toHaveLength(1);
+  expect((await preencherChecklist(page, { placa: 'ABC1D23', divergencias: [[23, 'MU', 'Freio']] })).ok).toBe(true);
+  await expect.poll(async () => (await listar('inspecoes')).map(i => i.id).sort()).toEqual(['ABC1D23_' + hojeISO(), 'ABC1D23_' + hojeISO() + '_2']);
+  await expect.poll(async () => (await listar('requerimentos')).map(q => q.id)).toEqual(['ABC1D23_' + hojeISO() + '_2_23']);
   const r = await preencherChecklist(page, { placa: 'ABC1D23' });
   expect(r.ok).toBe(false);
-  expect(r.texto).toContain('Já existe um checklist');
+  expect(r.texto).toContain('já tem 2 checklists');
   const velho = await preencherChecklist(page, { placa: 'ABC1D23', data: diasAtras(40) });
   expect(velho.texto).toContain('últimos 30 dias');
 });
