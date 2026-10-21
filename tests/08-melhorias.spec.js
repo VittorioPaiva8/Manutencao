@@ -246,3 +246,93 @@ test('requerimentos: filtro pela data de abertura', async ({ page }) => {
   await page.selectOption('#rPeriodo', '30');
   await expect(page.locator('#reqCont')).toHaveText('2 requerimento(s)');
 });
+
+test('QR code: gestor imprime as etiquetas e o link abre o checklist com a placa preenchida', async ({ page, novaJanela }) => {
+  await equipamento('ABC1D23', 'Caminhão basculante', { equipe: 'Terraplanagem' });
+  await equipamento('XYZ9K88', 'Retroescavadeira');
+  await entrar(page, await criarConta('Gestora', 'g@teste.com', 'gestor'));
+  await page.evaluate(() => { window.__impressoes = 0; window.print = () => { window.__impressoes++; }; });
+  await aba(page, 'eq');
+  await expect(page.locator('#eqGrid [data-eq]')).toHaveCount(2);
+  await page.click('#btnEtiquetas');
+  await expect.poll(() => page.evaluate(() => window.__impressoes)).toBe(1);
+  const etq = page.locator('#printRoot .pr-etq');
+  await expect(etq).toHaveCount(2);
+  await expect(etq.first()).toContainText('ABC1D23');
+  await expect(etq.first()).toContainText('Caminhão basculante');
+  await expect(etq.first().locator('svg.qr path')).toHaveCount(1);
+  await expect(etq.first().locator('svg.qr')).toHaveAttribute('aria-label', /\/\?placa=ABC1D23$/);
+  await page.evaluate(() => dispatchEvent(new Event('afterprint')));
+  // Etiqueta de um só, pelo relatório.
+  await page.locator('#eqGrid [data-eq="XYZ9K88"]').click();
+  await page.click('#relQR');
+  await expect(page.locator('#printRoot .pr-etq')).toHaveCount(1);
+  await expect(page.locator('#printRoot .pr-etq')).toHaveAttribute('data-placa', 'XYZ9K88');
+
+  // Operador "aponta a câmera": abre o link, entra e cai no checklist com a placa e o equipamento.
+  const o = await novaJanela();
+  const op = await criarConta('Op', 'op@teste.com');
+  await o.goto('/?placa=ABC1D23');
+  await o.fill('#lEmail', op.email);
+  await o.fill('#lSenha', 'senha123');
+  await o.click('#btnLogin');
+  await o.locator('#telaApp').waitFor();
+  await expect(o.locator('.tab[data-view="check"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(o.locator('#placa')).toHaveValue('ABC1D23');
+  await expect(o.locator('#equipamento')).toHaveValue('Caminhão basculante');
+  await expect(o.locator('#equipe')).toHaveValue('Terraplanagem');
+  expect(new URL(o.url()).search).toBe('');
+  // Operador não imprime etiquetas.
+  await aba(o, 'eq');
+  await expect(o.locator('#btnEtiquetas')).toBeHidden();
+});
+
+test('custo da OS: técnico informa peças e mão de obra; aparece no relatório, Finalizados e CSV', async ({ page, novaJanela }) => {
+  const fs = require('fs');
+  await equipamento('ABC1D23', 'Caminhão basculante');
+  const tec = await criarConta('Carlos Técnico', 'tec@teste.com', 'tecnico');
+  const op = await criarConta('Op', 'op@teste.com');
+  await requerimento('R1', { status: 'OS aberta', numeroOS: '7', responsavel: 'Carlos Técnico', responsavelUid: tec.uid });
+  await requerimento('R2', { status: 'OS aberta', numeroOS: '8', responsavel: 'Carlos Técnico', responsavelUid: tec.uid, itemNumero: 6 });
+  await entrar(page, tec);
+  await aba(page, 'minhas');
+  await page.click('#minhasTbody tr[data-id="R1"]');
+  await page.fill('#mCustoPecas', 'abc');
+  await page.click('#mSalvar');
+  await expect(page.locator('#toastRoot')).toContainText('O custo precisa ser um número');
+  await page.fill('#mCustoPecas', '1.350,50');
+  await page.fill('#mCustoMO', '200');
+  await page.selectOption('#mStatus', 'Concluído');
+  await page.click('#mSalvar');
+  await expect.poll(async () => (await buscar('requerimentos/R1')).status).toBe('Concluído');
+  const r = await buscar('requerimentos/R1');
+  expect(r).toMatchObject({ custoPecas: 1350.5, custoMaoObra: 200 });
+  expect(r.historico[0]).toMatchObject({ custoAntes: null, custo: 1550.5 });
+
+  // Regras: custo negativo é recusado; operador não mexe no custo.
+  const linha = { em: 1, uid: tec.uid, obs: '' };
+  expect(await como(tec).alterar('requerimentos/R2', { status: 'OS aberta', fechadoEm: null, historico: [linha], custoPecas: -5 })).toBe(403);
+  expect(await como(tec).alterar('requerimentos/R2', { status: 'OS aberta', fechadoEm: null, historico: [linha], custoPecas: 100 })).toBe(200);
+  expect(await como(op).alterar('requerimentos/R2', { custoPecas: 1 })).toBe(403);
+
+  const g = await novaJanela();
+  await entrar(g, await criarConta('Gestora', 'g@teste.com', 'gestor'));
+  await aba(g, 'fin');
+  await expect(g.locator('#finKpis')).toContainText('Custo totalR$ 1.550,50');
+  await expect(g.locator('#finTbody tr[data-id="R1"]')).toContainText('R$ 1.550,50');
+  const [dl] = await Promise.all([g.waitForEvent('download'), g.click('#btnFinCsv')]);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  expect(csv).toContain('"Peças (R$)";"Mão de obra (R$)";"Custo total (R$)"');
+  expect(csv).toContain('"1.350,50";"200,00";"1.550,50"');
+  await g.click('#finTbody tr[data-id="R1"]');
+  await expect(g.locator('#mCustoPecas')).toHaveValue('1.350,50');
+  await expect(g.locator('.hist')).toContainText('Custo: R$ 1.550,50');
+  await g.click('#mCancelar');
+
+  // Relatório do equipamento: soma as duas OS (R2 ainda aberta, com R$ 100 de peças).
+  await gravar('inspecoes/ABC1D23_x', { placaId: 'ABC1D23', placa: 'ABC1D23', dataInspecao: diasAtras(1), liberado: 'SIM', contagem: { OK: 50 }, respostas: [], criadoEmLocal: Date.now() });
+  await aba(g, 'eq');
+  await g.locator('#eqGrid [data-eq="ABC1D23"]').click();
+  await expect(g.locator('#relDados .rel-kpis')).toContainText('Custo de manutençãoR$ 1.650,50');
+  await expect(g.locator('#relDados .rel-kpis')).toContainText('peças R$ 1.450,50 · mão de obra R$ 200,00');
+});

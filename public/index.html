@@ -391,6 +391,14 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
 .pr-ass{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:28px;text-align:center;font-size:9px;break-inside:avoid}
 .pr-ass span{display:block;border-top:1px solid #000;margin-bottom:3px}
 .pr-rod{margin-top:12px;font-size:7.5px;color:#777;text-align:right}
+/* Etiquetas QR: 4 por folha A4, com linha tracejada para recortar */
+.pr-etiquetas{display:grid;grid-template-columns:1fr 1fr;gap:6mm}
+.pr-etq{border:1px dashed #999;border-radius:4mm;padding:6mm 5mm;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2mm;break-inside:avoid;height:128mm;box-sizing:border-box}
+.pr-etq-cab{display:flex;align-items:center;gap:3mm;font-size:11px;border-bottom:2px solid #E40A18;padding-bottom:2mm;width:100%;justify-content:center}
+.pr-etq .qr{width:62mm;height:62mm}
+.pr-etq-placa{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:22px;letter-spacing:1px}
+.pr-etq-nome{font-size:13px;font-weight:600}
+.pr-etq small{font-size:9px;color:#444;max-width:60mm}
 </style>
 </head>
 <body>
@@ -552,7 +560,7 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
   <section class="view" id="v-eq" hidden>
     <div class="page-h">
       <div><h2>Equipamentos</h2><p>Cada quadrado é um equipamento, com a cor do checklist de hoje. Toque em um para ver o relatório dele: tempo parado, uso médio, OS, preventivas e histórico.</p></div>
-      <button type="button" class="btn primary so-gestor" id="btnNovoEq" hidden>+ Novo equipamento</button>
+      <div class="page-acoes so-gestor" hidden><button type="button" class="btn" id="btnEtiquetas">Imprimir etiquetas QR</button> <button type="button" class="btn primary" id="btnNovoEq">+ Novo equipamento</button></div>
     </div>
     <div class="eq-barra">
       <div class="eq-resumo" id="eqResumo" role="group" aria-label="Filtrar por situação"></div>
@@ -630,7 +638,7 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
         <select class="inp" id="fStatus"><option value="">Concluídos e cancelados</option><option>Concluído</option><option>Cancelado</option></select>
       </div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Requerimento</th><th>Abertura</th><th>Fechamento</th><th class="r">Dias</th><th>Placa</th><th>Equipamento</th><th>Item</th><th>Prioridade</th><th>Nº OS</th><th>Responsável</th><th>Status</th></tr></thead>
+        <thead><tr><th>Requerimento</th><th>Abertura</th><th>Fechamento</th><th class="r">Dias</th><th>Placa</th><th>Equipamento</th><th>Item</th><th>Prioridade</th><th>Nº OS</th><th>Responsável</th><th class="r">Custo</th><th>Status</th></tr></thead>
         <tbody id="finTbody"></tbody>
       </table></div>
       <div class="pager" id="pg-fin" hidden></div>
@@ -697,6 +705,7 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
     }));
   })();
 </script>
+<script src="./vendor/qrcode.js"></script>
 <script type="module" src="./app.js"></script>
 </body>
 </html>

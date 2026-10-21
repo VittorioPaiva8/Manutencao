@@ -126,14 +126,17 @@ service cloud.firestore {
           && request.resource.data.ultimaEm == request.time);
     }
 
-    // Técnico responsável pela OS: só muda o status (sem cancelar) e registra uma linha no histórico.
+    function custoValido(v) { return v == null || (v is number && v >= 0 && v < 100000000); }
+
+    // Técnico responsável pela OS: só muda o status (sem cancelar) e o custo, e registra uma linha no histórico.
     function tecnicoResponsavel() {
       let novo = request.resource.data;
       let hist = resource.data.get('historico', []);
       return ativo() && perfil().papel == 'tecnico'
         && resource.data.get('responsavelUid', '') == request.auth.uid
         && resource.data.status != 'Cancelado'
-        && so(['status', 'fechadoEm', 'historico'])
+        && so(['status', 'fechadoEm', 'historico', 'custoPecas', 'custoMaoObra'])
+        && custoValido(novo.get('custoPecas', null)) && custoValido(novo.get('custoMaoObra', null))
         && novo.status in ['Em análise', 'OS aberta', 'Concluído']
         && (novo.status == 'Concluído'
           ? (novo.fechadoEm == request.time || novo.fechadoEm == resource.data.fechadoEm)

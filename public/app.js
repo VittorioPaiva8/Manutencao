@@ -252,6 +252,7 @@ function iniciarApp() {
   if (!$('#avaliador').value) $('#avaliador').value = S.perfil.nome || '';
   if (!$('#dataInspecao').value) $('#dataInspecao').value = hojeISO();
   montarItens();
+  if (placaDoQR) { abrirAba('check'); $('#placa').value = placaDoQR; }
   atualizarRede();
 
   const ouvir = (q, fn) => S.subs.push(onSnapshot(q, { includeMetadataChanges: true }, fn, e => console.warn(e)));
@@ -266,6 +267,7 @@ function iniciarApp() {
     $('#listaPlaca').innerHTML = S.equip.map(e => '<option value="' + esc(e.placa) + '">' + esc(e.equipamento) + '</option>').join('');
     $('#listaEquip').innerHTML = [...new Set(S.equip.map(e => e.equipamento))].map(v => '<option value="' + esc(v) + '">').join('');
     renderCadastros(); mostrarMedidor(); renderDia(); renderEquip();
+    usarPlacaDoQR();
   });
   ouvir(collection(db, 'preventivas'), snap => {
     S.prev = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }));
@@ -480,6 +482,7 @@ function contar() {
 // e a dos checklists já carregados. Cadastro antigo sem data de leitura: vale a maior.
 const UNID = { KM: 'km', HR: 'h' };
 const fmtNum = n => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+const fmtNum2 = n => typeof n === 'number' ? n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
 // Aceita o jeito brasileiro: "12.345,6" ou "12.345" (ponto de milhar) e também "12345.6".
 const lerNum = s => {
   let t = String(s || '').trim().replace(/\s/g, '');
@@ -743,6 +746,10 @@ $('#reqTbody').addEventListener('click', e => {
 ['#fBusca', '#fPeriodo', '#fStatus'].forEach(s => $(s).addEventListener('input', () => { paginas.fin = 0; renderFinalizados(); }));
 $('#pg-fin').addEventListener('pagina', renderFinalizados);
 const paraData = v => v && v.toDate ? v.toDate() : (typeof v === 'number' ? new Date(v) : null);
+// Custo da OS (peças + mão de obra), informado pelo técnico ou gestor.
+const fmtReais = v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const temCusto = r => typeof r.custoPecas === 'number' || typeof r.custoMaoObra === 'number';
+const custoReq = r => (r.custoPecas || 0) + (r.custoMaoObra || 0);
 const diasAteFechar = r => {
   const a = paraData(r.criadoEm || r.criadoEmLocal), f = paraData(r.fechadoEm);
   return a && f ? Math.max(0, Math.round((f - a) / 86400000)) : null;
@@ -773,7 +780,8 @@ function renderFinalizados() {
     kpi('Finalizados', lista.length, periodo) +
     kpi('Concluídos', concl.length, 'serviço realizado') +
     kpi('Cancelados', lista.length - concl.length, 'sem execução') +
-    kpi('Tempo médio', media + (dias.length ? ' d' : ''), 'da abertura à conclusão');
+    kpi('Tempo médio', media + (dias.length ? ' d' : ''), 'da abertura à conclusão') +
+    kpi('Custo total', fmtReais(lista.reduce((s, r) => s + custoReq(r), 0)), lista.filter(temCusto).length + ' OS com custo informado');
   renderGraficosFin(lista);
   $('#finCont').textContent = lista.length + ' requerimento(s)';
   $('#finTbody').innerHTML = lista.length ? paginar('fin', lista.map(r => {
@@ -789,10 +797,11 @@ function renderFinalizados() {
       '<td><span class="prio-' + slug(r.prioridade) + '">' + esc(r.prioridade) + '</span></td>' +
       '<td class="mono">' + (esc(r.numeroOS) || '<span class="dim">—</span>') + '</td>' +
       '<td>' + (esc(r.responsavel) || '<span class="dim">—</span>') + '</td>' +
+      '<td class="r nw mono">' + (temCusto(r) ? fmtReais(custoReq(r)) : '<span class="dim">—</span>') + '</td>' +
       '<td><span class="pill s-' + slug(r.status) + '">' + esc(r.status) + '</span></td>' +
     '</tr>';
   }))
-    : (paginar('fin', []), '') + '<tr><td colspan="11"><div class="empty"><h3>Nenhum requerimento finalizado</h3><p>Quando um requerimento for marcado como Concluído ou Cancelado, ele aparece aqui. Tente outro período.</p></div></td></tr>';
+    : (paginar('fin', []), '') + '<tr><td colspan="12"><div class="empty"><h3>Nenhum requerimento finalizado</h3><p>Quando um requerimento for marcado como Concluído ou Cancelado, ele aparece aqui. Tente outro período.</p></div></td></tr>';
 }
 function renderGraficosFin(lista) {
   const bloco = (titulo, extra, corpo) => '<div class="block"><div class="block-h"><h2>' + titulo + '</h2>' + (extra ? '<span>' + extra + '</span>' : '') + '</div><div class="block-b">' + corpo + '</div></div>';
@@ -842,9 +851,10 @@ $('#finTbody').addEventListener('click', e => {
 });
 $('#btnFinCsv').addEventListener('click', () => {
   const cel = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  const linhas = [['Requerimento', 'Abertura', 'Fechamento', 'Dias', 'Placa', 'Equipamento', 'Item', 'Classificação', 'Prioridade', 'Ocorrências', 'Nº OS', 'Responsável', 'Status', 'Divergência']]
+  const linhas = [['Requerimento', 'Abertura', 'Fechamento', 'Dias', 'Placa', 'Equipamento', 'Item', 'Classificação', 'Prioridade', 'Ocorrências', 'Nº OS', 'Responsável', 'Status', 'Divergência', 'Peças (R$)', 'Mão de obra (R$)', 'Custo total (R$)']]
     .concat(filtrarFinalizados().map(r => [r.codigo, fmt(r.criadoEm || r.criadoEmLocal), fmt(r.fechadoEm), diasAteFechar(r), r.placa, r.equipamento,
-      r.itemNumero + ' - ' + r.itemNome, r.classificacao, r.prioridade, r.ocorrencias, r.numeroOS, r.responsavel, r.status, r.descricao]));
+      r.itemNumero + ' - ' + r.itemNome, r.classificacao, r.prioridade, r.ocorrencias, r.numeroOS, r.responsavel, r.status, r.descricao,
+      fmtNum2(r.custoPecas), fmtNum2(r.custoMaoObra), temCusto(r) ? fmtNum2(custoReq(r)) : '']));
   const blob = new Blob(['\ufeff' + linhas.map(l => l.map(cel).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'requerimentos-finalizados-' + hojeISO() + '.csv';
@@ -896,6 +906,7 @@ function eventosHistorico(r) {
     if (h.de !== h.status) m.push('Status: ' + (h.de || '—') + ' → ' + h.status);
     if (h.osAntes !== h.os) m.push('Nº da OS: ' + (h.os || '—'));
     if (h.respAntes !== h.resp) m.push('Responsável: ' + (h.resp || '—'));
+    if (h.custo !== undefined && h.custo !== h.custoAntes) m.push('Custo: ' + (h.custo == null ? '—' : fmtReais(h.custo)));
     ev.push({ em: h.em, por: h.por, txt: m.join(' · ') || 'Observação', obs: h.obs });
   });
   return ev.sort((a, b) => (paraData(a.em) || 0) - (paraData(b.em) || 0));
@@ -909,7 +920,8 @@ function abrirReq(r) {
   const campos = [['Abertura', fmt(r.criadoEm || r.criadoEmLocal)], ['Inspeção', r.inspecaoCodigo], ['Placa / prefixo', r.placa],
     ['Equipamento', r.equipamento], ['KM / HR', r.kmHr], ['Item', r.itemNumero + ' · ' + r.itemNome], ['Classificação', r.classificacao],
     ['Prioridade', r.prioridade], ['Avaliador', r.avaliador], ['Ocorrências', r.ocorrencias], ['Última ocorrência', fmt(r.ultimaOcorrencia)],
-    ['Fechamento', fmt(r.fechadoEm)], ['Divergência', r.descricao]].filter(([, v]) => v !== '' && v != null);
+    ['Fechamento', fmt(r.fechadoEm)], ['Divergência', r.descricao],
+    ['Custo', temCusto(r) ? fmtReais(custoReq(r)) + ' (peças ' + fmtReais(r.custoPecas) + ' · mão de obra ' + fmtReais(r.custoMaoObra) + ')' : '']].filter(([, v]) => v !== '' && v != null);
   const pode = gestor();
   // O técnico responsável muda o status da própria OS (não cancela, não troca número nem responsável).
   const tec = !pode && tecnico() && r.responsavelUid === S.user.uid && r.status !== 'Cancelado';
@@ -928,6 +940,10 @@ function abrirReq(r) {
           '<div class="field"><label for="mOS">Nº da OS</label><input id="mOS" class="inp" value="' + esc(r.numeroOS) + '"' + (pode ? '' : ' readonly') + '></div>' +
           '<div class="field"><label for="mResp">Responsável (técnico)</label>' + campoResponsavel(r, pode) + '</div>' +
         '</div>' +
+        (edita ? '<div class="row" style="margin-top:10px">' +
+          '<div class="field"><label for="mCustoPecas">Custo das peças (R$)</label><input id="mCustoPecas" class="inp" inputmode="decimal" autocomplete="off" placeholder="0,00" value="' + (typeof r.custoPecas === 'number' ? esc(fmtNum2(r.custoPecas)) : '') + '"></div>' +
+          '<div class="field"><label for="mCustoMO">Custo da mão de obra (R$)</label><input id="mCustoMO" class="inp" inputmode="decimal" autocomplete="off" placeholder="0,00" value="' + (typeof r.custoMaoObra === 'number' ? esc(fmtNum2(r.custoMaoObra)) : '') + '"></div>' +
+        '</div>' : '') +
         (edita ? '<div class="field" style="margin-top:10px"><label for="mObs">' + (tec ? 'Serviço realizado / observação' : 'Observação (opcional)') + '</label><textarea id="mObs" class="inp" maxlength="1000" rows="2" placeholder="Fica registrada no histórico"></textarea></div>'
           : '<p class="hint">Somente o gestor ou o técnico responsável altera o tratamento.</p>') +
         '<p class="section-t">Histórico</p>' + htmlHistorico(r) + '</div>' +
@@ -956,7 +972,11 @@ function abrirReq(r) {
     const fechado = status === 'Concluído' || status === 'Cancelado';
     const os = pode ? $('#mOS').value.trim() : (r.numeroOS || '');
     const resp = pode ? lerResponsavel() : { nome: r.responsavel || '', uid: r.responsavelUid || '' };
-    const mudou = status !== r.status || os !== (r.numeroOS || '') || resp.nome !== (r.responsavel || '');
+    const pecas = lerNum($('#mCustoPecas').value), mo = lerNum($('#mCustoMO').value);
+    if (Number.isNaN(pecas) || Number.isNaN(mo)) { toast('O custo precisa ser um número, por exemplo 350,00.', true); return; }
+    const custoAntes = temCusto(r) ? custoReq(r) : null, custo = pecas == null && mo == null ? null : (pecas || 0) + (mo || 0);
+    const mudouCusto = pecas !== (r.custoPecas ?? null) || mo !== (r.custoMaoObra ?? null);
+    const mudou = status !== r.status || os !== (r.numeroOS || '') || resp.nome !== (r.responsavel || '') || mudouCusto;
     if (!mudou && !obs && !fotoServ) { fechar(); return; }
     if (fotoServ) {
       setDoc(doc(db, 'fotos', 'servico_' + r.id), { reqId: r.id, tipo: 'servico', dados: fotoServ, criadoPor: S.user.uid, criadoEm: serverTimestamp() })
@@ -964,9 +984,10 @@ function abrirReq(r) {
     }
     const upd = { status, fechadoEm: fechado ? (r.fechadoEm || serverTimestamp()) : null };
     if (pode) Object.assign(upd, { numeroOS: os, responsavel: resp.nome, responsavelUid: resp.uid });
+    if (mudouCusto) Object.assign(upd, { custoPecas: pecas, custoMaoObra: mo });
     upd.historico = arrayUnion({
       em: Date.now(), por: S.perfil.nome || S.user.email || '', uid: S.user.uid,
-      de: r.status, status, osAntes: r.numeroOS || '', os, respAntes: r.responsavel || '', resp: resp.nome,
+      de: r.status, status, osAntes: r.numeroOS || '', os, respAntes: r.responsavel || '', resp: resp.nome, custoAntes, custo,
       obs: [obs, fotoServ ? 'Foto do serviço pronto anexada.' : ''].filter(Boolean).join('\n'),
     });
     updateDoc(doc(db, 'requerimentos', r.id), upd).catch(e => toast(traduzErro(e), true));
@@ -1194,8 +1215,8 @@ $('#btnBackup').addEventListener('click', async () => {
       ['Inspeções', [['Código', 'Data', 'Dia', 'Placa', 'Equipamento', 'Avaliador', 'Equipe', 'Cabine fechada', 'KM / HR', 'Rodou', 'OK', 'MU', 'PR', 'NA', 'Liberado', 'Requerimentos', 'Registrado em', 'Registrado por']]
         .concat(insp.map(i => { const c = i.contagem || {}; return [i.codigo, fmtData(i.dataInspecao), i.diaSemana, i.placa, i.equipamento, i.avaliador, i.equipe, i.cabine, i.kmHrValor ?? i.kmHr, i.kmHrRodado, c.OK, c.MU, c.PR, c.NA, i.liberado, (i.requerimentos || []).join(', '), fmt(i.criadoEm || i.criadoEmLocal), i.criadoPorNome]; }))],
       ['Itens das inspeções', [['Inspeção', 'Data', 'Placa', 'Nº', 'Item', 'Situação', 'Observação', 'Foto']].concat(respostasLinhas)],
-      ['Requerimentos', [['Código', 'Abertura', 'Placa', 'Equipamento', 'Nº item', 'Item', 'Classificação', 'Prioridade', 'Ocorrências', 'Status', 'Nº OS', 'Responsável', 'Fechamento', 'Divergência', 'Inspeção']]
-        .concat(reqs.map(r => [r.codigo, fmt(r.criadoEm || r.criadoEmLocal), r.placa, r.equipamento, r.itemNumero, r.itemNome, r.classificacao, r.prioridade, r.ocorrencias, r.status, r.numeroOS, r.responsavel, fmt(r.fechadoEm), r.descricao, r.inspecaoCodigo]))],
+      ['Requerimentos', [['Código', 'Abertura', 'Placa', 'Equipamento', 'Nº item', 'Item', 'Classificação', 'Prioridade', 'Ocorrências', 'Status', 'Nº OS', 'Responsável', 'Fechamento', 'Divergência', 'Inspeção', 'Peças (R$)', 'Mão de obra (R$)']]
+        .concat(reqs.map(r => [r.codigo, fmt(r.criadoEm || r.criadoEmLocal), r.placa, r.equipamento, r.itemNumero, r.itemNome, r.classificacao, r.prioridade, r.ocorrencias, r.status, r.numeroOS, r.responsavel, fmt(r.fechadoEm), r.descricao, r.inspecaoCodigo, r.custoPecas, r.custoMaoObra]))],
       ['Histórico das OS', [['Requerimento', 'Placa', 'Quando', 'Quem', 'Status anterior', 'Status', 'Nº OS', 'Responsável', 'Observação']].concat(hist)],
       ['Equipamentos', [['Placa', 'Equipamento', 'Equipe', 'Cabine fechada', 'Medidor', 'Leitura atual', 'Leitura em']]
         .concat(equip.map(e => [e.placa, e.equipamento, e.equipe, e.cabine, e.tipoMedidor === 'HR' ? 'Horímetro' : e.tipoMedidor === 'KM' ? 'KM' : '', e.medidorAtual, fmt(e.medidorEm)]))],
@@ -1408,7 +1429,8 @@ async function imprimirReq(r) {
     dadosImp([['Placa / prefixo', r.placa], ['Equipamento', r.equipamento], ['KM / HR', r.kmHr], ['Abertura', fmt(r.criadoEm || r.criadoEmLocal)],
       ['Item', [r.itemNumero, r.itemNome].filter(v => v != null && v !== '').join(' · '), true], ['Classificação', r.classificacao], ['Prioridade', r.prioridade],
       ['Status', r.status], ['Nº da OS', r.numeroOS], ['Responsável', r.responsavel], ['Fechamento', fmt(r.fechadoEm)],
-      ['Inspeção', r.inspecaoCodigo], ['Avaliador', r.avaliador], ['Ocorrências', r.ocorrencias]]) +
+      ['Inspeção', r.inspecaoCodigo], ['Avaliador', r.avaliador], ['Ocorrências', r.ocorrencias],
+      ['Custo das peças', temCusto(r) ? fmtReais(r.custoPecas) : ''], ['Custo da mão de obra', temCusto(r) ? fmtReais(r.custoMaoObra) : ''], ['Custo total', temCusto(r) ? fmtReais(custoReq(r)) : '']]) +
     '<p class="pr-sec">Divergência</p><div class="pr-texto">' + esc(r.descricao) + '</div>' +
     '<div class="pr-fotos">' + fotos(antes, 'Antes (divergência)') + fotos(depois, 'Depois (serviço pronto)') + '</div>' +
     '<p class="pr-sec">Histórico</p><table class="pr-tab"><thead><tr><th>Quando</th><th>Quem</th><th>O que aconteceu</th></tr></thead><tbody>' +
@@ -1416,6 +1438,35 @@ async function imprimirReq(r) {
     (r.status === 'Concluído' ? '' : '<p class="pr-sec">Serviço realizado</p><div class="pr-linhas"><span></span><span></span><span></span></div>') +
     assImp(['Técnico responsável' + (r.responsavel ? ': ' + esc(r.responsavel) : ''), 'Gestor da manutenção']) + rodapeImp() + '</div>');
 }
+
+// ---------- QR code do equipamento ----------
+// A etiqueta leva o endereço do app com ?placa=...: a câmera do celular abre o checklist com a placa preenchida.
+let placaDoQR = new URLSearchParams(location.search).get('placa') || '';
+if (placaDoQR) history.replaceState(null, '', location.pathname);
+function usarPlacaDoQR() {
+  if (!placaDoQR || !S.equip.length) return;
+  const e = S.equip.find(x => String(x.placa).toUpperCase() === placaDoQR.trim().toUpperCase());
+  if (e) { $('#placa').value = e.placa; $('#placa').dispatchEvent(new Event('change')); }
+  else toast('A placa ' + placaDoQR + ' da etiqueta não está cadastrada.', true);
+  placaDoQR = '';
+}
+const linkQR = e => location.origin + location.pathname.replace(/index\.html$/, '') + '?placa=' + encodeURIComponent(e.placa);
+function svgQR(texto) {
+  const q = qrcode(0, 'M'); q.addData(texto); q.make();
+  const n = q.getModuleCount(), m = 4;
+  let d = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += 'M' + c + ' ' + r + 'h1v1h-1z';
+  return '<svg class="qr" viewBox="' + -m + ' ' + -m + ' ' + (n + 2 * m) + ' ' + (n + 2 * m) + '" shape-rendering="crispEdges" role="img" aria-label="QR code para ' + esc(texto) + '">' +
+    '<rect x="' + -m + '" y="' + -m + '" width="' + (n + 2 * m) + '" height="' + (n + 2 * m) + '" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
+}
+const etiquetaQR = e => '<div class="pr-etq" data-placa="' + esc(e.placa) + '"><div class="pr-etq-cab"><span class="pr-marca">CHK</span><b>Checklist de Averiguação</b></div>' +
+  svgQR(linkQR(e)) + '<b class="pr-etq-placa">' + esc(e.placa) + '</b><span class="pr-etq-nome">' + esc(e.equipamento || '') + '</span>' +
+  '<small>Aponte a câmera do celular para abrir o checklist deste equipamento.</small></div>';
+function imprimirEtiquetas(lista) {
+  if (!lista.length) { toast('Nenhum equipamento cadastrado.', true); return; }
+  imprimir(lista.length === 1 ? 'Etiqueta QR ' + lista[0].placa : 'Etiquetas QR', '<div class="pr-etiquetas">' + lista.map(etiquetaQR).join('') + '</div>');
+}
+$('#btnEtiquetas').addEventListener('click', () => imprimirEtiquetas(S.equip));
 
 // ---------- Avisos no aparelho ----------
 // Com o app aberto (ou em segundo plano), o técnico é avisado de OS nova com ele e o gestor de requerimento urgente.
@@ -1495,10 +1546,17 @@ function calcRelatorio(eq, todasInsp, todosReqs, periodo) {
   const reqsPer = todosReqs.filter(r => { const d = tempo(r); return d && isoDia(d) >= ini; });
   const concluidos = todosReqs.filter(r => r.status === 'Concluído' && r.fechadoEm && isoDia(paraData(r.fechadoEm)) >= ini);
   const durOS = concluidos.map(diasAteFechar).filter(d => d != null);
+  // Custo: OS com custo informado, contadas pela data de fechamento (ou de abertura, se ainda abertas).
+  const comCusto = todosReqs.filter(r => { const d = paraData(r.fechadoEm) || tempo(r); return temCusto(r) && d && isoDia(d) >= ini; });
+  const custo = {
+    total: comCusto.reduce((s, r) => s + custoReq(r), 0), pecas: comCusto.reduce((s, r) => s + (r.custoPecas || 0), 0),
+    mo: comCusto.reduce((s, r) => s + (r.custoMaoObra || 0), 0), os: comCusto.length,
+  };
+  custo.porMes = custo.total / Math.max(1, dias / 30);
   const itens = {};
   reqsPer.forEach(r => { const k = r.itemNumero + ' · ' + r.itemNome; itens[k] = (itens[k] || 0) + (r.ocorrencias || 1); });
   return {
-    ini, dias, total: noPer.length, diasCom, liberados,
+    ini, dias, total: noPer.length, diasCom, liberados, custo,
     disponibilidade: noPer.length ? Math.round(liberados / noPer.length * 100) : null,
     paradas: pars.length, parAtual,
     mediaParado: fechadas.length ? Math.round(fechadas.reduce((s, p) => s + p.dias, 0) / fechadas.length * 10) / 10 : (parAtual ? null : 0),
@@ -1539,13 +1597,14 @@ async function abrirRelatorio(eq) {
       '<div class="modal-b" id="relCorpo"><div class="rel-topo"><span class="eq-selo st-' + st + '"><span class="eq-sim">' + icEq(st) + '</span>' + ST_EQ[st].nome + '</span>' +
         '<select class="inp" id="relPer" aria-label="Período"><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="365">Último ano</option><option value="0">Desde o primeiro checklist</option></select></div>' +
         '<div id="relDados"><p class="dim">Carregando o histórico…</p></div></div>' +
-      '<div class="modal-f">' + (gestor() ? '<button class="btn" id="relEditar" style="margin-right:auto">Editar cadastro</button>' : '') +
+      '<div class="modal-f">' + (gestor() ? '<button class="btn" id="relEditar">Editar cadastro</button><button class="btn" id="relQR" style="margin-right:auto">Etiqueta QR</button>' : '') +
         (hoje ? '<button class="btn dark" id="relHoje">Ver checklist de hoje</button>' : '') + '<button class="btn" id="mCancelar">Fechar</button></div>' +
     '</div></div>';
   const fechar = () => { $('#modalRoot').innerHTML = ''; };
   $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
   $('#ov').addEventListener('click', e => { if (e.target.id === 'ov') fechar(); });
   if ($('#relEditar')) $('#relEditar').onclick = () => abrirEquip(eq);
+  if ($('#relQR')) $('#relQR').onclick = () => imprimirEtiquetas([eq]);
   if (hoje) $('#relHoje').onclick = () => abrirInsp(hoje);
 
   let insps = S.insp.filter(i => i.placaId === eq.id), reqs = [];
@@ -1573,6 +1632,7 @@ async function abrirRelatorio(eq) {
         kpi('Checklists feitos', r.diasCom + ' de ' + r.dias, 'dias com checklist (' + Math.round(r.diasCom / r.dias * 100) + '%)', r.diasCom / r.dias < 0.5) +
         kpi('OS no período', r.osPer, 'MU ' + r.osMU + ' · PR ' + r.osPR + ' · ' + r.osAbertas.length + ' em aberto agora', r.osAbertas.length > 0) +
         kpi('Tempo médio da OS', r.mediaOS == null ? '—' : fmtDias(r.mediaOS), r.osConcluidas + ' concluída(s) no período') +
+        kpi('Custo de manutenção', r.custo.os ? fmtReais(r.custo.total) : '—', r.custo.os ? 'peças ' + fmtReais(r.custo.pecas) + ' · mão de obra ' + fmtReais(r.custo.mo) + ' · ' + fmtReais(r.custo.porMes) + ' por mês' : 'nenhuma OS com custo no período') +
       '</div>' +
       '<div id="relPrev"></div>' +
       '<div><p class="section-t">Últimos 30 dias</p><div class="rel-faixa">' + r.faixa.map(f => '<span class="st-' + f.st + (f.insp ? ' tem' : '') + '" data-dia="' + f.d + '" title="' + fmtData(f.d) + ': ' + ST_EQ[f.st].nome.replace(' hoje', '') + '"></span>').join('') + '</div>' +
