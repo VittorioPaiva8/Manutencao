@@ -11,7 +11,7 @@ Nada toca nos dados reais.
 
 | Arquivo | O que confere |
 |---|---|
-| `tests/01-acesso.spec.js` | Criar conta, aprovação pelo gestor, senha errada, esqueci a senha, cargos, bloquear e excluir usuário, tema claro/escuro, abas de cada cargo |
+| `tests/01-acesso.spec.js` | Criar conta, aprovação pelo gestor, senha errada, esqueci a senha, cargos, bloquear e excluir usuário, tema claro/escuro, abas de cada cargo (incluindo Relatórios do gestor) |
 | `tests/02-checklist.spec.js` | Registrar checklist, liberação (MU, item crítico, item 50), requerimentos, campos obrigatórios, placa não cadastrada, até dois por dia, ocorrência repetida, KM e horímetro, foto, legenda do item crítico |
 | `tests/03-os.spec.js` | Tratamento da OS pelo gestor, próximo número da OS, técnico em Minhas OS, histórico, operador só lê, filtros, Finalizados e CSV |
 | `tests/04-gestao.spec.js` | Itens do checklist (novo, renomear, desativar, crítico, excluir, restaurar), painel do dia, checklist completo, paginação, backup em Excel, correção do KM |
@@ -19,6 +19,7 @@ Nada toca nos dados reais.
 | `tests/06-celular.spec.js` | Tela de celular: menu que abre e fecha, aviso somado no botão, tema e Sair pelo menu, tabelas em cartões, nada passando da largura da tela, campos com 16px (sem zoom no iPhone) |
 | `tests/07-equipamentos.spec.js` | Aba Equipamentos: cadastrar, editar e remover pelo modal, placa repetida, cor de cada quadrado pelo checklist do dia (verde, vermelho, amarelo, cinza), filtro por cor e busca, operador só vê; relatório ao tocar no quadrado (disponibilidade, tempo médio parado, uso médio, OS, últimos 30 dias) e aviso de parado agora |
 | `tests/08-melhorias.spec.js` | KM corrigido para menos pelo gestor vale na tela e no próximo checklist; preventivas por KM (cadastro, aviso perto e vencido, aviso no checklist, técnico marca feita, regras); foto do serviço pronto (e quem pode gravar); imprimir / PDF do checklist e da OS; avisos no aparelho para técnico e gestor; filtro por data de abertura nos Requerimentos; etiquetas QR e link que abre o checklist com a placa; custo da OS (peças e mão de obra) no relatório, Finalizados, CSV e regras |
+| `tests/09-relatorios.spec.js` | Aba Relatórios: período rápido e personalizado, resumo do período, ranking da frota, custos, checklists em falta, OS em aberto e preventivas em PDF; período inválido; só o gestor vê |
 
 ## Regra para toda mudança nova
 

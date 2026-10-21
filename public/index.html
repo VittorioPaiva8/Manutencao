@@ -391,6 +391,25 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
 .pr-ass{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:28px;text-align:center;font-size:9px;break-inside:avoid}
 .pr-ass span{display:block;border-top:1px solid #000;margin-bottom:3px}
 .pr-rod{margin-top:12px;font-size:7.5px;color:#777;text-align:right}
+.pr-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:8px}
+.pr-kpis div{border:1px solid #999;border-top:2.5px solid #111;padding:4px 6px}
+.pr-kpis span{display:block;font-size:7.5px;text-transform:uppercase;letter-spacing:.4px;color:#555}
+.pr-kpis b{display:block;font-size:14px;margin:1px 0}
+.pr-kpis small{display:block;font-size:7.5px;color:#444}
+.pr-tab td.r,.pr-tab th.r{text-align:right;white-space:nowrap}
+.pr-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pr-datas{font-style:normal!important;font-size:8px!important;color:#444}
+.pr-st-vencida{color:#C00010}.pr-st-perto{color:#A35F00}.pr-st-ok{color:#1E7B45}
+/* Aba Relatórios */
+.rl-periodo{align-items:center}
+.rl-periodo select.inp{flex:0 1 220px}
+.rl-data{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);font-weight:600}
+.rl-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:14px}
+.rl-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;justify-content:space-between;gap:12px}
+.rl-card b{color:var(--fg-strong);font-size:15px}
+.rl-card p{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.45}
+.rl-card .btn{align-self:flex-start}
+.rl-tag{margin-left:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 5px;vertical-align:2px}
 /* Etiquetas QR: 4 por folha A4, com linha tracejada para recortar */
 .pr-etiquetas{display:grid;grid-template-columns:1fr 1fr;gap:6mm}
 .pr-etq{border:1px dashed #999;border-radius:4mm;padding:6mm 5mm;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2mm;break-inside:avoid;height:128mm;box-sizing:border-box}
@@ -465,6 +484,7 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
     <button class="tab" role="tab" data-view="req" aria-selected="false">Requerimentos OS <span class="badge" id="reqBadge" hidden>0</span></button>
     <button class="tab" role="tab" data-view="insp" aria-selected="false">Inspeções</button>
     <button class="tab so-gestor" role="tab" data-view="fin" aria-selected="false" hidden>Finalizados</button>
+    <button class="tab so-gestor" role="tab" data-view="rel" aria-selected="false" hidden>Relatórios</button>
     <button class="tab so-gestor" role="tab" data-view="cad" aria-selected="false" hidden>Cadastros</button>
     <button class="tab so-gestor" role="tab" data-view="usr" aria-selected="false" hidden>Usuários <span class="badge" id="usrBadge" hidden>0</span></button>
   </nav>
@@ -661,6 +681,20 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
         <div class="tbl-wrap scroll"><table><tbody id="cfgItens"></tbody></table></div>
       </div>
     </div>
+  </section>
+
+  <!-- RELATÓRIOS (gestor) -->
+  <section class="view" id="v-rel" hidden>
+    <div class="page-h"><div><h2>Relatórios</h2><p>Escolha o período e gere o relatório em PDF. Na janela que abrir, escolha "Salvar como PDF" para guardar ou mandar, ou imprima direto.</p></div></div>
+    <div class="block">
+      <div class="block-h"><h2>Período</h2></div>
+      <div class="filters rl-periodo">
+        <select class="inp" id="rlRapido" aria-label="Período rápido"><option value="mes">Este mês</option><option value="mespassado">Mês passado</option><option value="30">Últimos 30 dias</option><option value="ano">Este ano</option><option value="">Personalizado</option></select>
+        <label class="rl-data">De <input class="inp" type="date" id="rlDe"></label>
+        <label class="rl-data">Até <input class="inp" type="date" id="rlAte"></label>
+      </div>
+    </div>
+    <div class="rl-lista" id="rlLista"></div>
   </section>
 
   <!-- USUÁRIOS (gestor) -->

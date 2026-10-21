@@ -14,7 +14,7 @@ test('abas ficam num menu que abre e fecha pelo botão', async ({ page }) => {
 
   await page.click('#btnMenu');
   await expect(page.locator('#btnMenu')).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.locator('#menuCel .tab:visible')).toHaveCount(8);
+  await expect(page.locator('#menuCel .tab:visible')).toHaveCount(9);
   await expect(page.locator('#quemMenu')).toContainText('Gestora Ana');
 
   // Escolher uma aba fecha o menu e mostra o nome dela no topo.

@@ -253,6 +253,7 @@ function iniciarApp() {
   if (!$('#dataInspecao').value) $('#dataInspecao').value = hojeISO();
   montarItens();
   if (placaDoQR) { abrirAba('check'); $('#placa').value = placaDoQR; }
+  renderRelatorios();
   atualizarRede();
 
   const ouvir = (q, fn) => S.subs.push(onSnapshot(q, { includeMetadataChanges: true }, fn, e => console.warn(e)));
@@ -1437,6 +1438,193 @@ async function imprimirReq(r) {
       ev.map(e => '<tr><td class="nw">' + esc(fmt(e.em)) + '</td><td>' + esc(e.por) + '</td><td>' + esc(e.txt) + (e.obs ? '<i>' + esc(e.obs) + '</i>' : '') + '</td></tr>').join('') + '</tbody></table>' +
     (r.status === 'Concluído' ? '' : '<p class="pr-sec">Serviço realizado</p><div class="pr-linhas"><span></span><span></span><span></span></div>') +
     assImp(['Técnico responsável' + (r.responsavel ? ': ' + esc(r.responsavel) : ''), 'Gestor da manutenção']) + rodapeImp() + '</div>');
+}
+
+// ---------- Relatórios (gestor) ----------
+// Cada relatório vira uma folha para imprimir ou salvar em PDF. Os dados vêm do servidor na hora de gerar.
+const RELATORIOS = [
+  { id: 'resumo', nome: 'Resumo do período', desc: 'Checklists feitos, disponibilidade da frota, OS, custo, equipamentos parados, preventivas e os itens que mais deram problema. Bom para mandar para a diretoria.' },
+  { id: 'ranking', nome: 'Ranking da frota', desc: 'Todos os equipamentos lado a lado: disponibilidade, dias parado, uso, checklists, OS e custo. Os que mais dão problema aparecem primeiro.' },
+  { id: 'custos', nome: 'Custos de manutenção', desc: 'Quanto foi gasto em peças e mão de obra, por equipamento e por item do checklist, com a lista das OS.' },
+  { id: 'falta', nome: 'Checklists em falta', desc: 'Dias em que cada equipamento ficou sem checklist no período, do que mais falhou para o que menos falhou.' },
+  { id: 'abertas', nome: 'OS em aberto', desc: 'Situação atual: todas as OS em aberto, há quantos dias, prioridade, número da OS e responsável.', atual: true },
+  { id: 'preventivas', nome: 'Preventivas', desc: 'Situação atual: todas as preventivas por equipamento, das vencidas para as em dia.', atual: true },
+];
+const isoDe = d => isoDia(d);
+function periodoRapido(v) {
+  const h = new Date(), y = h.getFullYear(), m = h.getMonth();
+  if (v === 'mes') return [isoDe(new Date(y, m, 1)), hojeISO()];
+  if (v === 'mespassado') return [isoDe(new Date(y, m - 1, 1)), isoDe(new Date(y, m, 0))];
+  if (v === '30') return [isoMenos(29), hojeISO()];
+  if (v === 'ano') return [isoDe(new Date(y, 0, 1)), hojeISO()];
+  return null;
+}
+function renderRelatorios() {
+  if (!$('#rlDe').value) { const p = periodoRapido('mes'); $('#rlDe').value = p[0]; $('#rlAte').value = p[1]; }
+  $('#rlLista').innerHTML = RELATORIOS.map(r => '<div class="rl-card"><div><b>' + r.nome + '</b>' + (r.atual ? '<span class="rl-tag">situação atual</span>' : '') + '<p>' + r.desc + '</p></div>' +
+    '<button type="button" class="btn dark" data-rel="' + r.id + '">Gerar PDF</button></div>').join('');
+}
+$('#rlRapido').addEventListener('change', () => {
+  const p = periodoRapido($('#rlRapido').value);
+  if (p) { $('#rlDe').value = p[0]; $('#rlAte').value = p[1]; }
+});
+['#rlDe', '#rlAte'].forEach(s => $(s).addEventListener('input', () => { $('#rlRapido').value = ''; }));
+$('#rlLista').addEventListener('click', async e => {
+  const b = e.target.closest('[data-rel]'); if (!b) return;
+  const de = $('#rlDe').value, ate = $('#rlAte').value;
+  if (!de || !ate || de > ate) { toast('Escolha um período válido: a data inicial não pode ser depois da final.', true); return; }
+  if (!navigator.onLine) { toast('Os relatórios precisam de internet para buscar tudo do servidor.', true); return; }
+  const txt = b.textContent; b.disabled = true; b.textContent = 'Gerando…';
+  try { await gerarRelatorio(b.dataset.rel, de, ate); }
+  catch (ex) { toast('Não foi possível gerar o relatório: ' + traduzErro(ex), true); }
+  finally { b.disabled = false; b.textContent = txt; }
+});
+
+/** Números de cada equipamento no período [de, ate]. */
+function numerosDoPeriodo(insps, reqs, de, ate) {
+  const hoje = hojeISO(), fim = ate > hoje ? hoje : ate;
+  const dias = Math.max(1, diffDias(de, fim) + 1);
+  const dentro = d => d && d >= de && d <= ate;
+  const diaDe = v => { const d = paraData(v); return d ? isoDia(d) : ''; };
+  const porEq = S.equip.map(e => {
+    const todas = insps.filter(i => i.placaId === e.id).sort((a, b) => a.dataInspecao.localeCompare(b.dataInspecao) || (a.criadoEmLocal || 0) - (b.criadoEmLocal || 0));
+    const per = todas.filter(i => dentro(i.dataInspecao));
+    const datas = new Set(per.map(i => i.dataInspecao));
+    const liberados = per.filter(i => i.liberado === 'SIM').length;
+    // Paradas que tocam o período, contando só os dias de dentro.
+    const pars = paradas(todas).filter(p => p.ini <= fim && (p.fim || hoje) >= de);
+    const diasParado = pars.reduce((s, p) => s + Math.max(1, diffDias(p.ini < de ? de : p.ini, (p.fim || hoje) > fim ? fim : (p.fim || hoje))), 0);
+    const leit = per.filter(i => typeof i.kmHrValor === 'number');
+    const uso = leit.length >= 2 ? Math.round((leit[leit.length - 1].kmHrValor - leit[0].kmHrValor) * 10) / 10 : null;
+    const doEq = reqs.filter(r => r.placa === e.placa);
+    const abertas = doEq.filter(r => dentro(diaDe(r.criadoEm || r.criadoEmLocal)));
+    const concl = doEq.filter(r => r.status === 'Concluído' && dentro(diaDe(r.fechadoEm)));
+    const comCusto = doEq.filter(r => temCusto(r) && dentro(diaDe(r.fechadoEm) || diaDe(r.criadoEm || r.criadoEmLocal)));
+    const faltam = [];
+    for (let k = 0; k < dias; k++) { const d = isoDia(new Date(Date.UTC(...de.split('-').map((v, i) => i === 1 ? v - 1 : +v)) + k * 864e5 + 12 * 36e5)); if (!datas.has(d)) faltam.push(d); }
+    return {
+      e, checklists: per.length, diasCom: datas.size, faltam, liberados, disp: per.length ? Math.round(liberados / per.length * 100) : null,
+      paradas: pars.length, diasParado, paradoAgora: pars.find(p => p.aberta), uso, un: UNID[e.tipoMedidor] || '',
+      osAbertas: abertas, osConcl: concl, comCusto, custo: comCusto.reduce((s, r) => s + custoReq(r), 0),
+      pecas: comCusto.reduce((s, r) => s + (r.custoPecas || 0), 0), mo: comCusto.reduce((s, r) => s + (r.custoMaoObra || 0), 0),
+    };
+  });
+  return { dias, fim, porEq, dentro, diaDe };
+}
+
+const kpisImp = l => '<div class="pr-kpis">' + l.map(([t, v, s]) => '<div><span>' + t + '</span><b>' + v + '</b>' + (s ? '<small>' + s + '</small>' : '') + '</div>').join('') + '</div>';
+const tabImp = (cab, linhas, vazio) => linhas.length
+  ? '<table class="pr-tab"><thead><tr>' + cab.map(c => '<th' + (c.startsWith('>') ? ' class="r"' : '') + '>' + c.replace(/^>/, '') + '</th>').join('') + '</tr></thead><tbody>' +
+    linhas.map(l => '<tr>' + l.map((v, i) => '<td' + (cab[i].startsWith('>') ? ' class="r"' : '') + '>' + v + '</td>').join('') + '</tr>').join('') + '</tbody></table>'
+  : '<div class="pr-vazio">' + vazio + '</div>';
+const pct = v => v == null ? '—' : v + '%';
+const nomeEq = e => esc(e.placa) + ' · ' + esc(e.equipamento || '');
+
+async function gerarRelatorio(qual, de, ate) {
+  const rel = RELATORIOS.find(r => r.id === qual);
+  const precisa = qual !== 'preventivas';
+  const [insps, reqs] = precisa ? await Promise.all([
+    getDocs(query(collection(db, 'inspecoes'), where('dataInspecao', '>=', isoMenos(400) < de ? isoMenos(400) : de))).then(q => q.docs.map(d => ({ id: d.id, ...d.data() }))),
+    getDocs(collection(db, 'requerimentos')).then(q => q.docs.map(d => ({ id: d.id, ...d.data() }))),
+  ]) : [[], []];
+  const n = numerosDoPeriodo(insps, reqs, de, ate);
+  const sub = rel.atual ? 'Situação em ' + fmtData(hojeISO()) : fmtData(de) + ' a ' + fmtData(ate);
+  let corpo = '';
+  const tot = (f) => n.porEq.reduce((s, x) => s + f(x), 0);
+
+  if (qual === 'resumo') {
+    const nch = tot(x => x.checklists), lib = tot(x => x.liberados), diasCom = tot(x => x.diasCom), esperado = n.dias * S.equip.length;
+    const osAb = reqs.filter(r => n.dentro(n.diaDe(r.criadoEm || r.criadoEmLocal)));
+    const osCo = reqs.filter(r => r.status === 'Concluído' && n.dentro(n.diaDe(r.fechadoEm)));
+    const dur = osCo.map(diasAteFechar).filter(d => d != null);
+    const parados = n.porEq.filter(x => x.paradoAgora);
+    const prevAl = S.equip.flatMap(e => alertasPrev(e));
+    const itens = {};
+    osAb.forEach(r => { const k = r.itemNumero + ' · ' + r.itemNome; itens[k] = (itens[k] || 0) + (r.ocorrencias || 1); });
+    const top = Object.entries(itens).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    corpo = kpisImp([
+      ['Checklists feitos', nch, diasCom + ' de ' + esperado + ' dias-equipamento (' + (esperado ? Math.round(diasCom / esperado * 100) : 0) + '%)'],
+      ['Disponibilidade da frota', pct(nch ? Math.round(lib / nch * 100) : null), lib + ' checklists liberados'],
+      ['OS abertas', osAb.length, 'MU ' + osAb.filter(r => String(r.classificacao).startsWith('MU')).length + ' · PR ' + osAb.filter(r => String(r.classificacao).startsWith('PR')).length],
+      ['OS concluídas', osCo.length, 'tempo médio ' + (dur.length ? fmtDias(Math.round(dur.reduce((a, b) => a + b, 0) / dur.length * 10) / 10) : '—')],
+      ['Custo de manutenção', fmtReais(tot(x => x.custo)), 'peças ' + fmtReais(tot(x => x.pecas)) + ' · mão de obra ' + fmtReais(tot(x => x.mo))],
+      ['Em aberto agora', reqs.filter(r => STATUS_ABERTOS.includes(r.status)).length, 'OS aguardando ou em execução'],
+      ['Parados agora', parados.length, 'último checklist não liberado'],
+      ['Preventivas vencidas', prevAl.filter(a => a.st === 'vencida').length, prevAl.filter(a => a.st === 'perto').length + ' chegando perto'],
+    ]) +
+    '<p class="pr-sec">Equipamentos</p>' + tabImp(['Equipamento', '>Checklists', '>Disponib.', '>Dias parado', '>OS abertas', '>Custo'],
+      n.porEq.slice().sort((a, b) => (a.disp ?? 101) - (b.disp ?? 101) || b.diasParado - a.diasParado)
+        .map(x => [nomeEq(x.e), x.checklists, pct(x.disp), x.diasParado, x.osAbertas.length, x.comCusto.length ? fmtReais(x.custo) : '—']), 'Nenhum equipamento cadastrado.') +
+    '<div class="pr-2col"><div><p class="pr-sec">Itens que mais deram problema</p>' + tabImp(['Item', '>Ocorrências'], top.map(([k, v]) => [esc(k), v]), 'Nenhuma divergência no período.') + '</div>' +
+    '<div><p class="pr-sec">Parados agora</p>' + tabImp(['Equipamento', 'Desde', '>Dias'], parados.map(x => [nomeEq(x.e), fmtData(x.paradoAgora.ini), x.paradoAgora.dias]), 'Nenhum equipamento parado.') + '</div></div>' +
+    assImp(['Gestor da manutenção', 'Diretoria']);
+  }
+
+  if (qual === 'ranking') {
+    const l = n.porEq.slice().sort((a, b) => (a.disp ?? 101) - (b.disp ?? 101) || b.diasParado - a.diasParado || b.custo - a.custo);
+    corpo = '<p class="pr-nota" style="margin-bottom:6px">Ordenado pela menor disponibilidade. Disponibilidade = checklists liberados ÷ checklists feitos. Uso = diferença entre a primeira e a última leitura do período.</p>' +
+      tabImp(['#', 'Equipamento', 'Equipe', '>Checklists', '>Disponib.', '>Paradas', '>Dias parado', '>Uso', '>OS', '>Concluídas', '>Custo'],
+        l.map((x, i) => [i + 1, nomeEq(x.e), esc(x.e.equipe || ''), x.diasCom + '/' + n.dias, pct(x.disp), x.paradas, x.diasParado,
+          x.uso == null ? '—' : fmtNum(x.uso) + ' ' + x.un, x.osAbertas.length, x.osConcl.length, x.comCusto.length ? fmtReais(x.custo) : '—']), 'Nenhum equipamento cadastrado.');
+  }
+
+  if (qual === 'custos') {
+    const os = n.porEq.flatMap(x => x.comCusto);
+    const itens = {};
+    os.forEach(r => { const k = r.itemNumero + ' · ' + r.itemNome; const v = itens[k] || (itens[k] = { n: 0, t: 0 }); v.n++; v.t += custoReq(r); });
+    corpo = kpisImp([
+      ['Custo total', fmtReais(tot(x => x.custo)), os.length + ' OS com custo'],
+      ['Peças', fmtReais(tot(x => x.pecas)), ''], ['Mão de obra', fmtReais(tot(x => x.mo)), ''],
+      ['Média por OS', os.length ? fmtReais(tot(x => x.custo) / os.length) : '—', ''],
+    ]) +
+    '<p class="pr-sec">Por equipamento</p>' + tabImp(['Equipamento', '>OS', '>Peças', '>Mão de obra', '>Total'],
+      n.porEq.filter(x => x.comCusto.length).sort((a, b) => b.custo - a.custo).map(x => [nomeEq(x.e), x.comCusto.length, fmtReais(x.pecas), fmtReais(x.mo), '<b>' + fmtReais(x.custo) + '</b>']), 'Nenhuma OS com custo no período.') +
+    '<p class="pr-sec">Por item do checklist</p>' + tabImp(['Item', '>OS', '>Total'], Object.entries(itens).sort((a, b) => b[1].t - a[1].t).map(([k, v]) => [esc(k), v.n, fmtReais(v.t)]), 'Nenhuma OS com custo no período.') +
+    '<p class="pr-sec">OS com custo</p>' + tabImp(['Requerimento', 'Nº OS', 'Placa', 'Item', 'Fechamento', '>Peças', '>Mão de obra', '>Total'],
+      os.sort((a, b) => custoReq(b) - custoReq(a)).map(r => [esc(r.codigo), esc(r.numeroOS || '—'), esc(r.placa), esc(r.itemNumero + ' · ' + r.itemNome), esc(fmt(r.fechadoEm).slice(0, 10) || 'em aberto'),
+        fmtReais(r.custoPecas), fmtReais(r.custoMaoObra), fmtReais(custoReq(r))]), 'Nenhuma OS com custo no período.');
+  }
+
+  if (qual === 'falta') {
+    const l = n.porEq.slice().sort((a, b) => b.faltam.length - a.faltam.length);
+    const falt = tot(x => x.faltam.length), esperado = n.dias * S.equip.length;
+    corpo = kpisImp([
+      ['Dias no período', n.dias, 'até ' + fmtData(n.fim)], ['Checklists esperados', esperado, '1 por equipamento por dia'],
+      ['Dias sem checklist', falt, esperado ? Math.round(falt / esperado * 100) + '% do esperado' : ''],
+      ['Equipamentos em dia', l.filter(x => !x.faltam.length).length, 'de ' + l.length],
+    ]) +
+    tabImp(['Equipamento', 'Equipe', '>Feitos', '>Faltaram', 'Dias sem checklist'],
+      l.map(x => [nomeEq(x.e), esc(x.e.equipe || ''), x.diasCom, '<b>' + x.faltam.length + '</b>',
+        '<i class="pr-datas">' + (x.faltam.length ? x.faltam.map(d => fmtData(d).slice(0, 5)).join(', ') : 'nenhum') + '</i>']), 'Nenhum equipamento cadastrado.');
+  }
+
+  if (qual === 'abertas') {
+    const ab = reqs.filter(r => STATUS_ABERTOS.includes(r.status)).map(r => ({ r, d: Math.max(0, Math.floor((Date.now() - (paraData(r.criadoEm || r.criadoEmLocal) || new Date())) / 864e5)) }))
+      .sort((a, b) => (a.r.prioridade === 'ALTA' ? 0 : 1) - (b.r.prioridade === 'ALTA' ? 0 : 1) || b.d - a.d);
+    corpo = kpisImp([
+      ['Em aberto', ab.length, ''], ['Prioridade alta', ab.filter(x => x.r.prioridade === 'ALTA').length, 'MU ou item crítico'],
+      ['Sem responsável', ab.filter(x => !x.r.responsavel).length, ''], ['Há mais de 7 dias', ab.filter(x => x.d > 7).length, ''],
+    ]) +
+    tabImp(['Requerimento', 'Abertura', '>Dias', 'Placa', 'Item', 'Prioridade', 'Status', 'Nº OS', 'Responsável'],
+      ab.map(({ r, d }) => [esc(r.codigo), esc(fmt(r.criadoEm || r.criadoEmLocal).slice(0, 10)), '<b>' + d + '</b>', esc(r.placa), esc(r.itemNumero + ' · ' + r.itemNome),
+        esc(r.prioridade), esc(r.status), esc(r.numeroOS || '—'), esc(r.responsavel || '—')]), 'Nenhuma OS em aberto.');
+  }
+
+  if (qual === 'preventivas') {
+    const l = S.equip.flatMap(e => prevDoEq(e).map(p => ({ e, p, s: situacaoPrev(p, e), un: UNID[e.tipoMedidor] || '' }))).filter(x => x.un)
+      .sort((a, b) => a.s.falta / a.p.intervalo - b.s.falta / b.p.intervalo);
+    const rot = { vencida: 'Vencida', perto: 'Chegando', ok: 'Em dia' };
+    corpo = kpisImp([
+      ['Preventivas', l.length, ''], ['Vencidas', l.filter(x => x.s.st === 'vencida').length, ''],
+      ['Chegando perto', l.filter(x => x.s.st === 'perto').length, 'faltam 10% ou menos'], ['Em dia', l.filter(x => x.s.st === 'ok').length, ''],
+    ]) +
+    tabImp(['Equipamento', 'Serviço', '>A cada', '>Última', '>Próxima', '>Atual', '>Falta', 'Situação'],
+      l.map(x => [nomeEq(x.e), esc(x.p.nome), fmtNum(x.p.intervalo) + ' ' + x.un, fmtNum(x.p.ultimaFeita), fmtNum(x.s.proxima), fmtNum(x.s.atual),
+        (x.s.falta < 0 ? '−' + fmtNum(-x.s.falta) : fmtNum(x.s.falta)) + ' ' + x.un, '<b class="pr-st-' + x.s.st + '">' + rot[x.s.st] + '</b>']), 'Nenhuma preventiva cadastrada.');
+  }
+
+  await imprimir(rel.nome + ' ' + (rel.atual ? fmtData(hojeISO()) : fmtData(de) + ' a ' + fmtData(ate)).replace(/\//g, '-'),
+    '<div class="pr-folha pr-rel" data-rel="' + qual + '">' + cabImp(rel.nome.toUpperCase(), 'RELATÓRIO', sub) + corpo + rodapeImp() + '</div>');
 }
 
 // ---------- QR code do equipamento ----------

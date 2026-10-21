@@ -96,5 +96,5 @@ test('cada cargo vê só as abas dele', async ({ page, novaJanela }) => {
   expect(await visiveis(t)).toEqual(['Novo checklist', 'Painel do dia', 'Equipamentos', 'Minhas OS', 'Requerimentos OS', 'Inspeções']);
   const g = await novaJanela();
   await entrar(g, await criarConta('Ges', 'ges@teste.com', 'gestor'));
-  expect(await visiveis(g)).toEqual(['Novo checklist', 'Painel do dia', 'Equipamentos', 'Requerimentos OS', 'Inspeções', 'Finalizados', 'Cadastros', 'Usuários']);
+  expect(await visiveis(g)).toEqual(['Novo checklist', 'Painel do dia', 'Equipamentos', 'Requerimentos OS', 'Inspeções', 'Finalizados', 'Relatórios', 'Cadastros', 'Usuários']);
 });

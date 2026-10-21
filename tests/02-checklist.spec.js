@@ -44,6 +44,9 @@ test('MU gera requerimento de prioridade alta e bloqueia a liberação; PR não 
 
 test('item crítico com PR bloqueia a liberação', async ({ page }) => {
   await gravar('config/checklist', { criticos: [27] });
+  // Espera a tela receber a configuração nova antes de preencher.
+  await aba(page, 'check');
+  await expect(page.locator('#it27 .crit')).toBeVisible();
   const r = await preencherChecklist(page, { placa: 'ABC1D23', divergencias: [[27, 'PR', 'Pneu careca']] });
   expect(r.texto).toContain('Liberado para atividades: NÃO');
   await expect.poll(async () => (await listar('requerimentos'))[0]?.prioridade).toBe('ALTA');
