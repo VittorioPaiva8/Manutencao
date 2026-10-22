@@ -147,12 +147,24 @@ service cloud.firestore {
         && novo.historico[hist.size()].obs.size() <= 1000;
     }
 
+    // Conta de MU / PR: só sobe, de 1 em 1, e nunca passa do total de ocorrências.
+    // Requerimento antigo (sem a conta) recebe de uma vez o que já tinha mais a nova.
+    function ocorrMuPrOk() {
+      let a = resource.data;
+      let b = request.resource.data;
+      let antes = a.get('ocorrMU', 0) + a.get('ocorrPR', 0);
+      let depois = b.get('ocorrMU', 0) + b.get('ocorrPR', 0);
+      return b.get('ocorrMU', 0) >= a.get('ocorrMU', 0) && b.get('ocorrPR', 0) >= a.get('ocorrPR', 0)
+        && depois <= b.ocorrencias && (depois - antes <= 1 || antes == 0);
+    }
+
     match /requerimentos/{id} {
       allow read: if ativo();
       allow create: if ativo()
         && request.resource.data.criadoPor == request.auth.uid
         && request.resource.data.status == 'Aberto'
         && request.resource.data.ocorrencias == 1
+        && request.resource.data.get('ocorrMU', 0) + request.resource.data.get('ocorrPR', 0) <= 1
         && request.resource.data.itemNumero is int
         && request.resource.data.itemNumero >= 1 && request.resource.data.itemNumero <= 60
         && id == request.resource.data.inspecaoId + '_' + string(request.resource.data.itemNumero)
@@ -162,8 +174,9 @@ service cloud.firestore {
       allow update: if gestor()
         || tecnicoResponsavel()
         || (ativo()
-          && so(['ocorrencias', 'ultimaOcorrencia', 'descricao', 'prioridade', 'classificacao', 'inspecoes', 'ultimaInspecao'])
+          && so(['ocorrencias', 'ocorrMU', 'ocorrPR', 'ultimaOcorrencia', 'descricao', 'prioridade', 'classificacao', 'inspecoes', 'ultimaInspecao'])
           && request.resource.data.ocorrencias == resource.data.ocorrencias + 1
+          && ocorrMuPrOk()
           && request.resource.data.descricao.size() <= 20000
           && inspecaoNovaDoUsuario(request.resource.data.ultimaInspecao));
       allow delete: if gestor();

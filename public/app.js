@@ -669,6 +669,12 @@ function registrarChecklist(inspId, fotos, d) {
         ocorrencias: increment(1), ultimaOcorrencia: agora, inspecoes: arrayUnion(inspRef.id), ultimaInspecao: inspRef.id,
         descricao: (existente.descricao ? existente.descricao + '\n' : '') + '[' + cod + '] ' + item.obs,
       };
+      // Conta quantas vezes o item veio MU e quantas PR. Requerimento antigo (sem a conta) começa pelo que já tinha.
+      if (existente.ocorrMU != null || existente.ocorrPR != null) upd[item.status === 'MU' ? 'ocorrMU' : 'ocorrPR'] = increment(1);
+      else {
+        const o = ocorrMuPr(existente);
+        upd.ocorrMU = o.mu + (item.status === 'MU' ? 1 : 0); upd.ocorrPR = o.pr + (item.status === 'PR' ? 1 : 0);
+      }
       if (alta) { upd.prioridade = 'ALTA'; upd.classificacao = CLASSIF[item.status]; }
       batch.update(doc(db, 'requerimentos', existente.id), upd);
       reqs.push({ codigo: existente.codigo, novo: false });
@@ -682,6 +688,7 @@ function registrarChecklist(inspId, fotos, d) {
         itemNumero: item.numero, itemNome: item.nome, classificacao: CLASSIF[item.status],
         prioridade: alta ? 'ALTA' : 'NORMAL', descricao: item.obs, avaliador: d.avaliador,
         responsavel: '', status: 'Aberto', numeroOS: '', fechadoEm: null, ocorrencias: 1, ultimaOcorrencia: agora,
+        ocorrMU: item.status === 'MU' ? 1 : 0, ocorrPR: item.status === 'PR' ? 1 : 0,
       });
       reqs.push({ codigo: rc, novo: true });
     }
@@ -752,7 +759,7 @@ function renderReq() {
       '<td>' + esc(r.equipamento) + '</td>' +
       '<td><span class="dim">' + esc(r.itemNumero) + '</span> ' + esc(r.itemNome) + '</td>' +
       '<td><span class="prio-' + slug(r.prioridade) + '">' + esc(r.prioridade) + '</span> <span class="dim">' + esc(String(r.classificacao || '').slice(0, 2)) + '</span></td>' +
-      '<td class="r mono">' + esc(r.ocorrencias) + '</td>' +
+      '<td class="r mono"><span>' + esc(r.ocorrencias) + '<small class="ocorr">' + esc(txtMuPr(ocorrMuPr(r))) + '</small></span></td>' +
       '<td class="mono">' + (esc(r.numeroOS) || '<span class="dim">—</span>') + '</td>' +
       '<td><span class="pill s-' + slug(r.status) + '">' + esc(r.status) + '</span></td>' +
     '</tr>'), maisReq)
@@ -920,6 +927,25 @@ function lerResponsavel() {
   return { nome: u ? (u.nome || u.email) : '', uid: v };
 }
 
+// ---------- Ocorrências MU / PR ----------
+// Quantas vezes o item foi marcado MU e PR. Requerimento antigo (sem a separação) conta tudo na classificação dele.
+function ocorrMuPr(r) {
+  if (r.ocorrMU != null || r.ocorrPR != null) return { mu: r.ocorrMU || 0, pr: r.ocorrPR || 0 };
+  const n = r.ocorrencias || 1;
+  return String(r.classificacao || '').startsWith('PR') ? { mu: 0, pr: n } : { mu: n, pr: 0 };
+}
+const txtMuPr = o => 'MU ' + o.mu + ' · PR ' + o.pr;
+const txtOcorr = r => (r.ocorrencias || 1) + ' (' + txtMuPr(ocorrMuPr(r)) + ')';
+/** Soma por item ("23 · FREIOS") as vezes que veio MU e PR; mais ocorrências primeiro. */
+function itensMuPr(reqs) {
+  const it = {};
+  reqs.forEach(r => {
+    const k = r.itemNumero + ' · ' + r.itemNome, o = ocorrMuPr(r), x = it[k] || (it[k] = { mu: 0, pr: 0 });
+    x.mu += o.mu; x.pr += o.pr;
+  });
+  return Object.entries(it).map(([k, o]) => [k, o.mu + o.pr, o]).sort((a, b) => b[1] - a[1]);
+}
+
 // ---------- Histórico da OS ----------
 // Cada mudança de tratamento entra em `historico` (lista no próprio requerimento): quem, quando e o que mudou.
 function eventosHistorico(r) {
@@ -943,7 +969,7 @@ function htmlHistorico(r) {
 function abrirReq(r) {
   const campos = [['Abertura', fmt(r.criadoEm || r.criadoEmLocal)], ['Inspeção', r.inspecaoCodigo], ['Placa / prefixo', r.placa],
     ['Equipamento', r.equipamento], ['KM / HR', r.kmHr], ['Item', r.itemNumero + ' · ' + r.itemNome], ['Classificação', r.classificacao],
-    ['Prioridade', r.prioridade], ['Avaliador', r.avaliador], ['Ocorrências', r.ocorrencias], ['Última ocorrência', fmt(r.ultimaOcorrencia)],
+    ['Prioridade', r.prioridade], ['Avaliador', r.avaliador], ['Ocorrências', txtOcorr(r)], ['Última ocorrência', fmt(r.ultimaOcorrencia)],
     ['Fechamento', fmt(r.fechadoEm)], ['Divergência', r.descricao],
     ['Custo', temCusto(r) ? fmtReais(custoReq(r)) + ' (peças ' + fmtReais(r.custoPecas) + ' · mão de obra ' + fmtReais(r.custoMaoObra) + ')' : '']].filter(([, v]) => v !== '' && v != null);
   const pode = gestor();
@@ -1453,7 +1479,7 @@ async function imprimirReq(r) {
     dadosImp([['Placa / prefixo', r.placa], ['Equipamento', r.equipamento], ['KM / HR', r.kmHr], ['Abertura', fmt(r.criadoEm || r.criadoEmLocal)],
       ['Item', [r.itemNumero, r.itemNome].filter(v => v != null && v !== '').join(' · '), true], ['Classificação', r.classificacao], ['Prioridade', r.prioridade],
       ['Status', r.status], ['Nº da OS', r.numeroOS], ['Responsável', r.responsavel], ['Fechamento', fmt(r.fechadoEm)],
-      ['Inspeção', r.inspecaoCodigo], ['Avaliador', r.avaliador], ['Ocorrências', r.ocorrencias],
+      ['Inspeção', r.inspecaoCodigo], ['Avaliador', r.avaliador], ['Ocorrências', txtOcorr(r)],
       ['Custo das peças', temCusto(r) ? fmtReais(r.custoPecas) : ''], ['Custo da mão de obra', temCusto(r) ? fmtReais(r.custoMaoObra) : ''], ['Custo total', temCusto(r) ? fmtReais(custoReq(r)) : '']]) +
     '<p class="pr-sec">Divergência</p><div class="pr-texto">' + esc(r.descricao) + '</div>' +
     '<div class="pr-fotos">' + fotos(antes, 'Antes (divergência)') + fotos(depois, 'Depois (serviço pronto)') + '</div>' +
@@ -1562,9 +1588,7 @@ async function gerarRelatorio(qual, de, ate) {
     const dur = osCo.map(diasAteFechar).filter(d => d != null);
     const parados = n.porEq.filter(x => x.paradoAgora);
     const prevAl = S.equip.flatMap(e => alertasPrev(e));
-    const itens = {};
-    osAb.forEach(r => { const k = r.itemNumero + ' · ' + r.itemNome; itens[k] = (itens[k] || 0) + (r.ocorrencias || 1); });
-    const top = Object.entries(itens).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const top = itensMuPr(osAb).slice(0, 10);
     corpo = kpisImp([
       ['Checklists feitos', nch, diasCom + ' de ' + esperado + ' dias-equipamento (' + (esperado ? Math.round(diasCom / esperado * 100) : 0) + '%)'],
       ['Disponibilidade da frota', pct(nch ? Math.round(lib / nch * 100) : null), lib + ' checklists liberados'],
@@ -1578,7 +1602,7 @@ async function gerarRelatorio(qual, de, ate) {
     '<p class="pr-sec">Equipamentos</p>' + tabImp(['Equipamento', '>Checklists', '>Disponib.', '>Dias parado', '>OS abertas', '>Custo'],
       n.porEq.slice().sort((a, b) => (a.disp ?? 101) - (b.disp ?? 101) || b.diasParado - a.diasParado)
         .map(x => [nomeEq(x.e), x.checklists, pct(x.disp), x.diasParado, x.osAbertas.length, x.comCusto.length ? fmtReais(x.custo) : '—']), 'Nenhum equipamento cadastrado.') +
-    '<div class="pr-2col"><div><p class="pr-sec">Itens que mais deram problema</p>' + tabImp(['Item', '>Ocorrências'], top.map(([k, v]) => [esc(k), v]), 'Nenhuma divergência no período.') + '</div>' +
+    '<div class="pr-2col"><div><p class="pr-sec">Itens que mais deram problema</p>' + tabImp(['Item', '>MU', '>PR', '>Total'], top.map(([k, v, o]) => [esc(k), o.mu, o.pr, v]), 'Nenhuma divergência no período.') + '</div>' +
     '<div><p class="pr-sec">Parados agora</p>' + tabImp(['Equipamento', 'Desde', '>Dias'], parados.map(x => [nomeEq(x.e), fmtData(x.paradoAgora.ini), x.paradoAgora.dias]), 'Nenhum equipamento parado.') + '</div></div>' +
     assImp(['Gestor da manutenção', 'Diretoria']);
   }
@@ -1764,8 +1788,6 @@ function calcRelatorio(eq, todasInsp, todosReqs, periodo) {
     mo: comCusto.reduce((s, r) => s + (r.custoMaoObra || 0), 0), os: comCusto.length,
   };
   custo.porMes = custo.total / Math.max(1, dias / 30);
-  const itens = {};
-  reqsPer.forEach(r => { const k = r.itemNumero + ' · ' + r.itemNome; itens[k] = (itens[k] || 0) + (r.ocorrencias || 1); });
   return {
     ini, dias, total: noPer.length, diasCom, liberados, custo,
     disponibilidade: noPer.length ? Math.round(liberados / noPer.length * 100) : null,
@@ -1777,7 +1799,7 @@ function calcRelatorio(eq, todasInsp, todosReqs, periodo) {
     osPer: reqsPer.length, osMU: reqsPer.filter(r => String(r.classificacao).startsWith('MU')).length, osPR: reqsPer.filter(r => String(r.classificacao).startsWith('PR')).length,
     osAbertas: todosReqs.filter(r => STATUS_ABERTOS.includes(r.status)).sort((a, b) => (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0)),
     osConcluidas: concluidos.length, mediaOS: durOS.length ? Math.round(durOS.reduce((s, d) => s + d, 0) / durOS.length * 10) / 10 : null,
-    topItens: Object.entries(itens).sort((a, b) => b[1] - a[1]).slice(0, 5),
+    topItens: itensMuPr(reqsPer).slice(0, 5),
     // Últimos 30 dias, um quadradinho por dia com a cor do checklist daquele dia.
     faixa: Array.from({ length: 30 }, (_, k) => {
       const d = isoMenos(29 - k), i = insps.findLast(x => x.dataInspecao === d), c = i && (i.contagem || {});
@@ -1849,8 +1871,8 @@ async function abrirRelatorio(eq) {
       '<div><p class="section-t">Últimos 30 dias</p><div class="rel-faixa">' + r.faixa.map(f => '<span class="st-' + f.st + (f.insp ? ' tem' : '') + '" data-dia="' + f.d + '" title="' + fmtData(f.d) + ': ' + ST_EQ[f.st].nome.replace(' hoje', '') + '"></span>').join('') + '</div>' +
         '<div class="rel-faixa-leg"><span>' + fmtData(r.faixa[0].d).slice(0, 5) + '</span><span class="chart-leg">' + ['ok', 'mu', 'pr', 'nada'].map(k => '<span><i class="st-' + k + '" style="background:var(--st)"></i>' + ST_EQ[k].nome.replace(' hoje', '') + '</span>').join('') + '</span><span>hoje</span></div></div>' +
       (un ? '<div><p class="section-t">' + (un === 'h' ? 'Horímetro' : 'KM') + ' no período</p>' + graficoLeituras(r.leituras, un) + '</div>' : '') +
-      '<div class="rel-2col"><div><p class="section-t">Itens que mais deram problema</p>' + (r.topItens.length ? '<div class="hbars">' + r.topItens.map(([k, v]) =>
-          '<div class="hbar"><span class="t" title="' + esc(k) + '">' + esc(k) + '</span><span class="v">' + v + '</span><div class="track"><span style="width:' + (v / r.topItens[0][1] * 100) + '%"></span></div></div>').join('') + '</div>' : '<p class="hint">Nenhuma divergência no período.</p>') + '</div>' +
+      '<div class="rel-2col"><div><p class="section-t">Itens que mais deram problema</p>' + (r.topItens.length ? '<div class="hbars">' + r.topItens.map(([k, v, o]) =>
+          '<div class="hbar"><span class="t" title="' + esc(k) + '">' + esc(k) + '</span><span class="v">' + v + ' <small>' + txtMuPr(o) + '</small></span><div class="track"><span style="width:' + (v / r.topItens[0][1] * 100) + '%"></span></div></div>').join('') + '</div>' : '<p class="hint">Nenhuma divergência no período.</p>') + '</div>' +
         '<div><p class="section-t">OS em aberto</p>' + (r.osAbertas.length ? '<ul class="rel-os">' + r.osAbertas.map(o => '<li data-req="' + esc(o.id) + '"><span><b>' + esc(o.itemNome) + '</b><small>' + esc(o.codigo) + ' · ' + fmt(o.criadoEm || o.criadoEmLocal).slice(0, 10) + (o.responsavel ? ' · ' + esc(o.responsavel) : '') + '</small></span><span class="pill s-' + slug(o.status) + '">' + esc(o.status) + '</span></li>').join('') + '</ul>' : '<p class="hint">Nenhuma OS em aberto.</p>') + '</div></div>';
   };
   $('#relPer').onchange = () => { pintar(); pintarPrev(eq); };
