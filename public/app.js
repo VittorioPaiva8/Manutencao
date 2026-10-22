@@ -257,7 +257,8 @@ function iniciarApp() {
   renderRelatorios();
   atualizarRede();
 
-  const ouvir = (q, fn) => S.subs.push(onSnapshot(q, { includeMetadataChanges: true }, fn, e => console.warn(e)));
+  const ouvir = (q, fn) => S.subs.push(onSnapshot(q, { includeMetadataChanges: true }, soComMudanca(fn), e => console.warn(e)));
+  S.finOuvindo = false;
 
   ouvir(doc(db, 'config', 'checklist'), snap => {
     S.cfg = Object.assign({ criticos: [], inativos: [], extras: [], removidos: [], nomes: {} }, snap.exists() ? snap.data() : {});
@@ -268,18 +269,18 @@ function iniciarApp() {
     S.equip = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) })).sort((a, b) => String(a.placa).localeCompare(b.placa));
     $('#listaPlaca').innerHTML = S.equip.map(e => '<option value="' + esc(e.placa) + '">' + esc(e.equipamento) + '</option>').join('');
     $('#listaEquip').innerHTML = [...new Set(S.equip.map(e => e.equipamento))].map(v => '<option value="' + esc(v) + '">').join('');
-    renderCadastros(); mostrarMedidor(); renderDia(); renderEquip();
+    agendar(renderCadastros, mostrarMedidor, renderDia, renderEquip);
     usarPlacaDoQR();
   });
   ouvir(collection(db, 'preventivas'), snap => {
     S.prev = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }));
-    renderEquip(); renderDia(); if (pintarPrev.eq) pintarPrev(pintarPrev.eq);
+    agendar(renderEquip, renderDia, repintarPrev);
   });
   novidades.vistos = {};
   atualizarBtnAvisos();
   ouvir(query(collection(db, 'requerimentos'), where('status', 'in', STATUS_ABERTOS)), snap => {
     S.reqAbertos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderReq(); renderDia();
+    agendar(renderReq, renderDia);
     if (gestor()) novidades('reqs', snap).filter(r => r.prioridade === 'ALTA' && r.criadoPor !== S.user.uid)
       .forEach(r => avisar('Requerimento urgente: ' + r.placa, r.itemNumero + ' · ' + r.itemNome + (r.descricao ? ' — ' + r.descricao : ''), r.id));
   });
@@ -287,7 +288,7 @@ function iniciarApp() {
     ouvir(query(collection(db, 'requerimentos'), where('responsavelUid', '==', S.user.uid)), snap => {
       S.minhas = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }))
         .sort((a, b) => (b.criadoEmLocal || 0) - (a.criadoEmLocal || 0));
-      renderMinhas();
+      agendar(renderMinhas);
       novidades('minhas', snap).filter(r => STATUS_ABERTOS.includes(r.status))
         .forEach(r => avisar('Nova OS para você: ' + r.placa, r.itemNumero + ' · ' + r.itemNome + (r.numeroOS ? ' · OS ' + r.numeroOS : ''), r.id));
     });
@@ -296,35 +297,65 @@ function iniciarApp() {
   if (gestor()) {
     ouvir(collection(db, 'usuarios'), snap => {
       S.usuarios = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderUsuarios();
-    });
-    // Ordenar só por fechadoEm dispensa índice composto; os abertos (fechadoEm nulo) ficam no fim e são filtrados.
-    ouvir(query(collection(db, 'requerimentos'), orderBy('fechadoEm', 'desc'), limit(1000)), snap => {
-      S.reqFinalizados = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }))
-        .filter(r => r.status === 'Concluído' || r.status === 'Cancelado');
-      renderFinalizados();
+      agendar(renderUsuarios);
     });
   }
+  // Os finalizados (até 1000 OS) só são baixados quando o gestor abre a aba Finalizados.
+  if ($('.tab[data-view="fin"]').getAttribute('aria-selected') === 'true') ouvirFinalizados();
+}
+function ouvirFinalizados() {
+  if (!gestor() || S.finOuvindo) return;
+  S.finOuvindo = true;
+  // Ordenar só por fechadoEm dispensa índice composto; os abertos (fechadoEm nulo) ficam no fim e são filtrados.
+  S.subs.push(onSnapshot(query(collection(db, 'requerimentos'), orderBy('fechadoEm', 'desc'), limit(1000)), { includeMetadataChanges: true }, soComMudanca(snap => {
+    S.reqFinalizados = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }))
+      .filter(r => r.status === 'Concluído' || r.status === 'Cancelado');
+    agendar(renderFinalizados);
+  }), e => console.warn(e)));
+}
+
+// ---------- Desempenho ----------
+// Várias respostas do banco chegam quase juntas (principalmente ao abrir o app): junta os redesenhos num só.
+const filaRender = new Set();
+function agendar(...fns) {
+  fns.forEach(f => filaRender.add(f));
+  if (agendar.t) return;
+  agendar.t = setTimeout(() => {
+    agendar.t = 0;
+    const l = [...filaRender]; filaRender.clear();
+    l.forEach(f => { try { f(); } catch (e) { console.error(e); } });
+  }, 0);
+}
+const repintarPrev = () => { if (pintarPrev.eq) pintarPrev(pintarPrev.eq); };
+// Resposta repetida, sem documento novo nem mudança de estado (cache / servidor), não redesenha.
+function soComMudanca(fn) {
+  let primeira = true, doCache;
+  return snap => {
+    const igual = !primeira && snap.docChanges && snap.metadata.fromCache === doCache && !snap.docChanges({ includeMetadataChanges: true }).length;
+    doCache = snap.metadata.fromCache;
+    if (igual) return;
+    primeira = false; fn(snap);
+  };
 }
 
 // Listas com limite que cresce no botão "Carregar mais antigos".
 const LIM = { req: 500, insp: 300 }, unsubLista = {};
 function ouvirLimitado(chave, q, fn) {
   if (unsubLista[chave]) unsubLista[chave]();
-  unsubLista[chave] = onSnapshot(q, { includeMetadataChanges: true }, fn, e => console.warn(e));
+  unsubLista[chave] = onSnapshot(q, { includeMetadataChanges: true }, soComMudanca(fn), e => console.warn(e));
   S.subs.push(() => { if (unsubLista[chave]) { unsubLista[chave](); unsubLista[chave] = null; } });
 }
 function ouvirReqRecentes() {
   ouvirLimitado('req', query(collection(db, 'requerimentos'), orderBy('criadoEmLocal', 'desc'), limit(LIM.req)), snap => {
     S.reqRecentes = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }));
-    renderReq();
+    agendar(renderReq);
   });
 }
 function ouvirInsp() {
   ouvirLimitado('insp', query(collection(db, 'inspecoes'), orderBy('criadoEmLocal', 'desc'), limit(LIM.insp)), snap => {
     S.insp = snap.docs.map(d => ({ id: d.id, pend: d.metadata.hasPendingWrites, ...d.data() }));
     S.pendentes = S.insp.filter(i => i.pend && i.criadoPor === S.user.uid).length;
-    atualizarRede(); renderInsp(); renderCadastros(); mostrarMedidor(); renderDia(); renderEquip();
+    atualizarRede(); agendar(renderInsp, renderCadastros, mostrarMedidor, renderDia, renderEquip);
   });
 }
 
@@ -335,6 +366,7 @@ function abrirAba(v) {
   const t = $('.tab[data-view="' + v + '"]');
   $('#secAtual').textContent = t ? t.firstChild.textContent.trim() : '';
   $('#btnGestao').classList.toggle('ativo', !!(t && t.closest('#listaGestao')));
+  if (v === 'fin' && S.user) ouvirFinalizados();
   abrirMenu(false); fecharPops();
   $$('.view').forEach(s => { s.hidden = s.id !== 'v-' + v; });
   scrollTo({ top: 0 });
@@ -1569,13 +1601,35 @@ const tabImp = (cab, linhas, vazio) => linhas.length
 const pct = v => v == null ? '—' : v + '%';
 const nomeEq = e => esc(e.placa) + ' · ' + esc(e.equipamento || '');
 
+/**
+ * Busca só o que os relatórios usam: checklists desde 120 dias antes do início (para saber se já estava parado)
+ * e as OS abertas no período, fechadas no período ou ainda em aberto. Gerar vários relatórios seguidos
+ * reaproveita a mesma busca por 1 minuto.
+ */
+async function dadosRelatorio(de) {
+  const c = dadosRelatorio.cache;
+  if (c && c.de === de && Date.now() - c.em < 60e3) return c.p;
+  // Um dia de folga antes do início cobre a diferença de fuso; o filtro exato é feito depois.
+  const ms = Date.UTC(...de.split('-').map((v, i) => i === 1 ? v - 1 : +v)) - 864e5;
+  const docs = q => getDocs(q).then(r => r.docs.map(d => ({ id: d.id, ...d.data() })));
+  const desde = isoMenos(Math.max(0, diffDias(de, hojeISO())) + 120);
+  const p = Promise.all([
+    docs(query(collection(db, 'inspecoes'), where('dataInspecao', '>=', desde))),
+    Promise.all([
+      docs(query(collection(db, 'requerimentos'), where('criadoEmLocal', '>=', ms))),
+      docs(query(collection(db, 'requerimentos'), where('fechadoEm', '>=', new Date(ms)))),
+      docs(query(collection(db, 'requerimentos'), where('status', 'in', STATUS_ABERTOS))),
+    ]).then(ls => [...new Map(ls.flat().map(r => [r.id, r])).values()]),
+  ]);
+  dadosRelatorio.cache = { de, em: Date.now(), p };
+  p.catch(() => { dadosRelatorio.cache = null; });
+  return p;
+}
+
 async function gerarRelatorio(qual, de, ate) {
   const rel = RELATORIOS.find(r => r.id === qual);
   const precisa = qual !== 'preventivas';
-  const [insps, reqs] = precisa ? await Promise.all([
-    getDocs(query(collection(db, 'inspecoes'), where('dataInspecao', '>=', isoMenos(400) < de ? isoMenos(400) : de))).then(q => q.docs.map(d => ({ id: d.id, ...d.data() }))),
-    getDocs(collection(db, 'requerimentos')).then(q => q.docs.map(d => ({ id: d.id, ...d.data() }))),
-  ]) : [[], []];
+  const [insps, reqs] = precisa ? await dadosRelatorio(de) : [[], []];
   const n = numerosDoPeriodo(insps, reqs, de, ate);
   const sub = rel.atual ? 'Situação em ' + fmtData(hojeISO()) : fmtData(de) + ' a ' + fmtData(ate);
   let corpo = '';

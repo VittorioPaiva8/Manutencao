@@ -1,6 +1,6 @@
 // Service worker: guarda a tela e o SDK do Firebase para o app abrir sem internet.
 // Ao mudar index.html ou app.js, aumente a VERSAO para os celulares baixarem a nova.
-const VERSAO = 'chk-v8';
+const VERSAO = 'chk-v9';
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1/';
 const ARQUIVOS = [
   './', './index.html', './app.js', './vendor/qrcode.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png',
