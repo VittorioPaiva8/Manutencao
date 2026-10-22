@@ -20,6 +20,8 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MANUTENCAO_C2F1F }}
           channelId: live
           projectId: manutencao-c2f1f
+          # Versão fixa: a 15.34.1 passou a pedir uma permissão (serviceusage) que a conta de serviço não tem.
+          firebaseToolsVersion: 15.34.0
       # Publica também as regras do banco. Precisa do papel "Firebase Rules Admin" na conta de serviço;
       # sem ele, este passo falha sem impedir a publicação do site.
       - name: Regras do Firestore

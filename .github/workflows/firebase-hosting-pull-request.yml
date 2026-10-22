@@ -16,3 +16,5 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MANUTENCAO_C2F1F }}
           projectId: manutencao-c2f1f
+          # Versão fixa: a 15.34.1 passou a pedir uma permissão (serviceusage) que a conta de serviço não tem.
+          firebaseToolsVersion: 15.34.0

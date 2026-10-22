@@ -21,6 +21,7 @@ Nada toca nos dados reais.
 | `tests/08-melhorias.spec.js` | KM corrigido para menos pelo gestor vale na tela e no próximo checklist; preventivas por KM (cadastro, aviso perto e vencido, aviso no checklist, técnico marca feita, regras); foto do serviço pronto (e quem pode gravar); imprimir / PDF do checklist e da OS; avisos no aparelho para técnico e gestor; filtro por data de abertura nos Requerimentos; etiquetas QR e link que abre o checklist com a placa; custo da OS (peças e mão de obra) no relatório, Finalizados, CSV e regras |
 | `tests/09-relatorios.spec.js` | Aba Relatórios: período rápido e personalizado, resumo do período, ranking da frota, custos, checklists em falta, OS em aberto e preventivas em PDF; período inválido; só o gestor vê |
 | `tests/10-topo.spec.js` | Barra de cima no computador: avatar com menu do usuário (nome, tema, Sair; fecha clicando fora e com Esc), menu Gestão com as abas do gestor, número de pendências e destaque da aba aberta, abas cabendo em tela média |
+| `tests/11-publicacao.spec.js` | Publicação: o deploy no GitHub usa uma versão fixa do Firebase CLI |
 
 ## Regra para toda mudança nova
 
