@@ -74,11 +74,12 @@ test('técnico vê as OS dele em Minhas OS, conclui e não consegue mexer no res
   await expect(page.locator('#minhasTbody tr[data-id]')).toHaveCount(1);
   await linhaDoReq(page.locator('#minhasTbody'), 'R1').click();
 
-  await expect(page.locator('#mStatus option')).toHaveText(['Em análise', 'OS aberta', 'Concluído']);
-  await expect(page.locator('#mOS')).toHaveAttribute('readonly', '');
-  await page.selectOption('#mStatus', 'Concluído');
+  // Tratamento (status, nº da OS, responsável, custos) não aparece para o técnico: só a situação em texto.
+  await expect(page.locator('#mTratamento, #mStatus, #mOS, #mResp, #mCustoPecas, #mCustoMO')).toHaveCount(0);
+  await expect(page.locator('#modalRoot .kv')).toContainText('StatusOS aberta');
+  await expect(page.locator('#modalRoot .kv')).toContainText('Nº da OS7');
   await page.fill('#mObs', 'Troquei as pastilhas');
-  await page.click('#mSalvar');
+  await page.click('#mPronto');
   await expect.poll(async () => (await buscar('requerimentos/R1')).status).toBe('Concluído');
   const r = await buscar('requerimentos/R1');
   expect(r.fechadoEm).toBeInstanceOf(Date);
@@ -99,7 +100,7 @@ test('operador só consulta os requerimentos', async ({ page }) => {
   await entrar(page, await criarConta('Op', 'op@teste.com'));
   await aba(page, 'req');
   await linhaDoReq(page, 'R1').click();
-  await expect(page.locator('#mStatus')).toBeDisabled();
+  await expect(page.locator('#mTratamento, #mStatus, #mObs, #mPronto')).toHaveCount(0);
   await expect(page.locator('#mSalvar')).toHaveCount(0);
   await expect(page.locator('.hist li')).toHaveCount(1);
 });

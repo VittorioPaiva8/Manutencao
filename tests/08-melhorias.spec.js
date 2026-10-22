@@ -127,8 +127,7 @@ test('técnico anexa a foto do serviço pronto ao concluir a OS', async ({ page 
   await expect(page.locator('#mFotoServ')).toContainText('Sem foto');
   await page.setInputFiles('#mFotoServInp', imagemTeste());
   await expect(page.locator('#mFotoServ img')).toBeVisible();
-  await page.selectOption('#mStatus', 'Concluído');
-  await page.click('#mSalvar');
+  await page.click('#mPronto');
 
   await expect.poll(async () => (await buscar('fotos/servico_R1'))?.dados?.slice(0, 23)).toBe('data:image/jpeg;base64,');
   expect(await buscar('fotos/servico_R1')).toMatchObject({ reqId: 'R1', tipo: 'servico', criadoPor: tec.uid });
@@ -291,37 +290,44 @@ test('QR code: gestor imprime as etiquetas e o link abre o checklist com a placa
   await expect(o.locator('#btnEtiquetas')).toBeHidden();
 });
 
-test('custo da OS: técnico informa peças e mão de obra; aparece no relatório, Finalizados e CSV', async ({ page, novaJanela }) => {
+test('custo da OS: gestor informa peças e mão de obra; aparece no relatório, Finalizados e CSV', async ({ page, novaJanela }) => {
   const fs = require('fs');
   await equipamento('ABC1D23', 'Caminhão basculante');
   const tec = await criarConta('Carlos Técnico', 'tec@teste.com', 'tecnico');
   const op = await criarConta('Op', 'op@teste.com');
   await requerimento('R1', { status: 'OS aberta', numeroOS: '7', responsavel: 'Carlos Técnico', responsavelUid: tec.uid });
   await requerimento('R2', { status: 'OS aberta', numeroOS: '8', responsavel: 'Carlos Técnico', responsavelUid: tec.uid, itemNumero: 6 });
+  // O técnico só marca o serviço pronto; não vê nem lança custo.
   await entrar(page, tec);
   await aba(page, 'minhas');
   await page.click('#minhasTbody tr[data-id="R1"]');
-  await page.fill('#mCustoPecas', 'abc');
-  await page.click('#mSalvar');
-  await expect(page.locator('#toastRoot')).toContainText('O custo precisa ser um número');
-  await page.fill('#mCustoPecas', '1.350,50');
-  await page.fill('#mCustoMO', '200');
-  await page.selectOption('#mStatus', 'Concluído');
-  await page.click('#mSalvar');
+  await expect(page.locator('#mCustoPecas, #mCustoMO')).toHaveCount(0);
+  await page.click('#mPronto');
   await expect.poll(async () => (await buscar('requerimentos/R1')).status).toBe('Concluído');
-  const r = await buscar('requerimentos/R1');
-  expect(r).toMatchObject({ custoPecas: 1350.5, custoMaoObra: 200 });
-  expect(r.historico[0]).toMatchObject({ custoAntes: null, custo: 1550.5 });
 
-  // Regras: custo negativo é recusado; operador não mexe no custo.
+  // Regras: técnico e operador não mexem no custo; custo negativo é recusado.
   const linha = { em: 1, uid: tec.uid, obs: '' };
-  expect(await como(tec).alterar('requerimentos/R2', { status: 'OS aberta', fechadoEm: null, historico: [linha], custoPecas: -5 })).toBe(403);
-  expect(await como(tec).alterar('requerimentos/R2', { status: 'OS aberta', fechadoEm: null, historico: [linha], custoPecas: 100 })).toBe(200);
+  expect(await como(tec).alterar('requerimentos/R2', { status: 'OS aberta', fechadoEm: null, historico: [linha], custoPecas: 100 })).toBe(403);
   expect(await como(op).alterar('requerimentos/R2', { custoPecas: 1 })).toBe(403);
 
   const g = await novaJanela();
-  await entrar(g, await criarConta('Gestora', 'g@teste.com', 'gestor'));
+  const gestora = await criarConta('Gestora', 'g@teste.com', 'gestor');
+  expect(await como(gestora).alterar('requerimentos/R2', { custoPecas: -5 })).toBe(403);
+  expect(await como(gestora).alterar('requerimentos/R2', { custoPecas: 100 })).toBe(200);
+  await entrar(g, gestora);
   await aba(g, 'fin');
+  await g.click('#finTbody tr[data-id="R1"]');
+  await g.fill('#mCustoPecas', 'abc');
+  await g.click('#mSalvar');
+  await expect(g.locator('#toastRoot')).toContainText('O custo precisa ser um número');
+  await g.fill('#mCustoPecas', '1.350,50');
+  await g.fill('#mCustoMO', '200');
+  await g.click('#mSalvar');
+  await expect.poll(async () => (await buscar('requerimentos/R1')).custoPecas).toBe(1350.5);
+  const r = await buscar('requerimentos/R1');
+  expect(r).toMatchObject({ custoPecas: 1350.5, custoMaoObra: 200, status: 'Concluído' });
+  expect(r.historico[r.historico.length - 1]).toMatchObject({ custoAntes: null, custo: 1550.5 });
+
   await expect(g.locator('#finKpis')).toContainText('Custo totalR$ 1.550,50');
   await expect(g.locator('#finTbody tr[data-id="R1"]')).toContainText('R$ 1.550,50');
   const [dl] = await Promise.all([g.waitForEvent('download'), g.click('#btnFinCsv')]);

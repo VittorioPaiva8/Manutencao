@@ -1002,7 +1002,7 @@ function eventosHistorico(r) {
     if (h.de !== h.status) m.push('Status: ' + (h.de || '—') + ' → ' + h.status);
     if (h.osAntes !== h.os) m.push('Nº da OS: ' + (h.os || '—'));
     if (h.respAntes !== h.resp) m.push('Responsável: ' + (h.resp || '—'));
-    if (h.custo !== undefined && h.custo !== h.custoAntes) m.push('Custo: ' + (h.custo == null ? '—' : fmtReais(h.custo)));
+    if (gestor() && h.custo !== undefined && h.custo !== h.custoAntes) m.push('Custo: ' + (h.custo == null ? '—' : fmtReais(h.custo)));
     ev.push({ em: h.em, por: h.por, txt: m.join(' · ') || 'Observação', obs: h.obs });
   });
   return ev.sort((a, b) => (paraData(a.em) || 0) - (paraData(b.em) || 0));
@@ -1016,34 +1016,37 @@ function abrirReq(r) {
   const campos = [['Abertura', fmt(r.criadoEm || r.criadoEmLocal)], ['Inspeção', r.inspecaoCodigo], ['Placa / prefixo', r.placa],
     ['Equipamento', r.equipamento], ['KM / HR', r.kmHr], ['Item', r.itemNumero + ' · ' + r.itemNome], ['Classificação', r.classificacao],
     ['Prioridade', r.prioridade], ['Avaliador', r.avaliador], ['Ocorrências', txtOcorr(r)], ['Última ocorrência', fmt(r.ultimaOcorrencia)],
-    ['Fechamento', fmt(r.fechadoEm)], ['Divergência', r.descricao],
-    ['Custo', temCusto(r) ? fmtReais(custoReq(r)) + ' (peças ' + fmtReais(r.custoPecas) + ' · mão de obra ' + fmtReais(r.custoMaoObra) + ')' : '']].filter(([, v]) => v !== '' && v != null);
+    ['Fechamento', fmt(r.fechadoEm)], ['Divergência', r.descricao]];
   const pode = gestor();
-  // O técnico responsável muda o status da própria OS (não cancela, não troca número nem responsável).
+  // Tratamento (status, nº da OS, responsável e custos) é só do gestor. Os outros veem a situação em texto.
+  if (pode) campos.push(['Custo', temCusto(r) ? fmtReais(custoReq(r)) + ' (peças ' + fmtReais(r.custoPecas) + ' · mão de obra ' + fmtReais(r.custoMaoObra) + ')' : '']);
+  else campos.splice(1, 0, ['Status', r.status], ['Nº da OS', r.numeroOS], ['Responsável', r.responsavel]);
+  const camposVis = campos.filter(([, v]) => v !== '' && v != null);
+  // O técnico responsável só anexa a foto, conta o que fez e marca "Serviço pronto".
   const tec = !pode && tecnico() && r.responsavelUid === S.user.uid && r.status !== 'Cancelado';
-  const opcoes = tec ? ['Em análise', 'OS aberta', 'Concluído'].concat(['Em análise', 'OS aberta', 'Concluído'].includes(r.status) ? [] : [r.status]) : STATUS_REQ;
+  const pronto = tec && r.status !== 'Concluído';
   const edita = pode || tec;
   $('#modalRoot').innerHTML =
     '<div class="ov" id="ov"><div class="modal" role="dialog" aria-modal="true">' +
       '<div class="block-h"><h2>' + esc(r.codigo) + '</h2><button class="modal-x" id="mX" aria-label="Fechar">×</button></div>' +
-      '<div class="modal-b"><dl class="kv">' + campos.map(([l, v]) => '<dt>' + l + '</dt><dd>' + esc(v) + '</dd>').join('') + '</dl>' +
+      '<div class="modal-b"><dl class="kv">' + camposVis.map(([l, v]) => '<dt>' + l + '</dt><dd>' + esc(v) + '</dd>').join('') + '</dl>' +
         '<div class="fotos-2"><div><p class="section-t">Fotos da divergência</p><div class="fotos" id="mFotos"><span class="dim">Carregando…</span></div></div>' +
         '<div><p class="section-t">Serviço pronto</p><div class="fotos" id="mFotoServ"><span class="dim">Carregando…</span></div>' +
         (edita ? '<label class="btn sm" style="margin-top:8px">Anexar foto do serviço<input type="file" accept="image/*" capture="environment" id="mFotoServInp" hidden></label>' : '') + '</div></div>' +
-        '<p class="section-t">Tratamento</p>' +
+        (pode ? '<div id="mTratamento"><p class="section-t">Tratamento</p>' +
         '<div class="row">' +
-          '<div class="field"><label for="mStatus">Status</label><select id="mStatus" class="inp"' + (edita ? '' : ' disabled') + '>' + opcoes.map(s => '<option' + (s === r.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></div>' +
-          '<div class="field"><label for="mOS">Nº da OS</label><input id="mOS" class="inp" value="' + esc(r.numeroOS) + '"' + (pode ? '' : ' readonly') + '></div>' +
+          '<div class="field"><label for="mStatus">Status</label><select id="mStatus" class="inp">' + STATUS_REQ.map(s => '<option' + (s === r.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select></div>' +
+          '<div class="field"><label for="mOS">Nº da OS</label><input id="mOS" class="inp" value="' + esc(r.numeroOS) + '"></div>' +
           '<div class="field"><label for="mResp">Responsável (técnico)</label>' + campoResponsavel(r, pode) + '</div>' +
         '</div>' +
-        (edita ? '<div class="row" style="margin-top:10px">' +
+        '<div class="row" style="margin-top:10px">' +
           '<div class="field"><label for="mCustoPecas">Custo das peças (R$)</label><input id="mCustoPecas" class="inp" inputmode="decimal" autocomplete="off" placeholder="0,00" value="' + (typeof r.custoPecas === 'number' ? esc(fmtNum2(r.custoPecas)) : '') + '"></div>' +
           '<div class="field"><label for="mCustoMO">Custo da mão de obra (R$)</label><input id="mCustoMO" class="inp" inputmode="decimal" autocomplete="off" placeholder="0,00" value="' + (typeof r.custoMaoObra === 'number' ? esc(fmtNum2(r.custoMaoObra)) : '') + '"></div>' +
-        '</div>' : '') +
-        (edita ? '<div class="field" style="margin-top:10px"><label for="mObs">' + (tec ? 'Serviço realizado / observação' : 'Observação (opcional)') + '</label><textarea id="mObs" class="inp" maxlength="1000" rows="2" placeholder="Fica registrada no histórico"></textarea></div>'
-          : '<p class="hint">Somente o gestor ou o técnico responsável altera o tratamento.</p>') +
+        '</div>' +
+        '<div class="field" style="margin-top:10px"><label for="mObs">Observação (opcional)</label><textarea id="mObs" class="inp" maxlength="1000" rows="2" placeholder="Fica registrada no histórico"></textarea></div></div>'
+        : tec ? '<div class="field" style="margin-top:14px"><label for="mObs">Serviço realizado / observação</label><textarea id="mObs" class="inp" maxlength="1000" rows="2" placeholder="Fica registrada no histórico"></textarea></div>' : '') +
         '<p class="section-t">Histórico</p>' + htmlHistorico(r) + '</div>' +
-      '<div class="modal-f"><button class="btn" id="mImprimir" style="margin-right:auto">Imprimir / PDF</button><button class="btn" id="mCancelar">' + (edita ? 'Cancelar' : 'Fechar') + '</button>' + (edita ? '<button class="btn primary" id="mSalvar">Salvar</button>' : '') + '</div>' +
+      '<div class="modal-f"><button class="btn" id="mImprimir" style="margin-right:auto">Imprimir / PDF</button><button class="btn" id="mCancelar">' + (edita ? 'Cancelar' : 'Fechar') + '</button>' + (edita ? '<button class="btn' + (pronto ? '' : ' primary') + '" id="mSalvar">Salvar</button>' : '') + (pronto ? '<button class="btn primary" id="mPronto">Serviço pronto</button>' : '') + '</div>' +
     '</div></div>';
   const fechar = () => { $('#modalRoot').innerHTML = ''; };
   $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
@@ -1062,13 +1065,13 @@ function abrirReq(r) {
   };
   // Ao marcar "OS aberta" com o campo vazio, já sugere o próximo número.
   const sugerir = () => { if (pode && $('#mStatus').value === 'OS aberta' && !$('#mOS').value.trim()) $('#mOS').value = proximaOS(r.id); };
-  $('#mStatus').addEventListener('change', sugerir); sugerir();
-  $('#mSalvar').onclick = () => {
-    const status = $('#mStatus').value, obs = $('#mObs').value.trim();
+  if (pode) { $('#mStatus').addEventListener('change', sugerir); sugerir(); }
+  const salvar = concluir => {
+    const status = pode ? $('#mStatus').value : concluir ? 'Concluído' : r.status, obs = $('#mObs').value.trim();
     const fechado = status === 'Concluído' || status === 'Cancelado';
     const os = pode ? $('#mOS').value.trim() : (r.numeroOS || '');
     const resp = pode ? lerResponsavel() : { nome: r.responsavel || '', uid: r.responsavelUid || '' };
-    const pecas = lerNum($('#mCustoPecas').value), mo = lerNum($('#mCustoMO').value);
+    const pecas = pode ? lerNum($('#mCustoPecas').value) : (r.custoPecas ?? null), mo = pode ? lerNum($('#mCustoMO').value) : (r.custoMaoObra ?? null);
     if (Number.isNaN(pecas) || Number.isNaN(mo)) { toast('O custo precisa ser um número, por exemplo 350,00.', true); return; }
     const custoAntes = temCusto(r) ? custoReq(r) : null, custo = pecas == null && mo == null ? null : (pecas || 0) + (mo || 0);
     const mudouCusto = pecas !== (r.custoPecas ?? null) || mo !== (r.custoMaoObra ?? null);
@@ -1088,8 +1091,10 @@ function abrirReq(r) {
     });
     updateDoc(doc(db, 'requerimentos', r.id), upd).catch(e => toast(traduzErro(e), true));
     fechar();
-    toast(navigator.onLine ? 'Requerimento atualizado' : 'Atualização salva offline');
+    toast(navigator.onLine ? (concluir ? 'Serviço marcado como pronto' : 'Requerimento atualizado') : 'Atualização salva offline');
   };
+  $('#mSalvar').onclick = () => salvar(false);
+  if (pronto) $('#mPronto').onclick = () => salvar(true);
 }
 const idsFotosReq = r => [...new Set(r.inspecoes || [r.inspecaoId])].map(i => i + '_' + r.itemNumero);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modalRoot').innerHTML = ''; });
@@ -1526,7 +1531,8 @@ async function imprimirReq(r) {
       ['Item', [r.itemNumero, r.itemNome].filter(v => v != null && v !== '').join(' · '), true], ['Classificação', r.classificacao], ['Prioridade', r.prioridade],
       ['Status', r.status], ['Nº da OS', r.numeroOS], ['Responsável', r.responsavel], ['Fechamento', fmt(r.fechadoEm)],
       ['Inspeção', r.inspecaoCodigo], ['Avaliador', r.avaliador], ['Ocorrências', txtOcorr(r)],
-      ['Custo das peças', temCusto(r) ? fmtReais(r.custoPecas) : ''], ['Custo da mão de obra', temCusto(r) ? fmtReais(r.custoMaoObra) : ''], ['Custo total', temCusto(r) ? fmtReais(custoReq(r)) : '']]) +
+      // Custo só sai no PDF do gestor.
+      ...(gestor() ? [['Custo das peças', temCusto(r) ? fmtReais(r.custoPecas) : ''], ['Custo da mão de obra', temCusto(r) ? fmtReais(r.custoMaoObra) : ''], ['Custo total', temCusto(r) ? fmtReais(custoReq(r)) : '']] : [])]) +
     '<p class="pr-sec">Divergência</p><div class="pr-texto">' + esc(r.descricao) + '</div>' +
     '<div class="pr-fotos">' + fotos(antes, 'Antes (divergência)') + fotos(depois, 'Depois (serviço pronto)') + '</div>' +
     '<p class="pr-sec">Histórico</p><table class="pr-tab"><thead><tr><th>Quando</th><th>Quem</th><th>O que aconteceu</th></tr></thead><tbody>' +

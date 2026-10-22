@@ -77,18 +77,21 @@ test('KM do cadastro: operador não diminui a leitura', async () => {
   expect(await como(op).alterar('equipamentos/KM1', { medidorAtual: 'muito', medidorPor: op.uid })).toBe(NEGADO);
 });
 
-test('técnico: só muda o status da OS dele, sem cancelar nem trocar número ou responsável', async () => {
+test('técnico: só marca a OS dele como concluída, sem outro status, número, responsável ou custo', async () => {
   const tec = await criarConta('Téc', 'tec@teste.com', 'tecnico');
   const base = { status: 'OS aberta', numeroOS: '7', responsavel: 'Téc', responsavelUid: tec.uid, fechadoEm: null, historico: [] };
   await gravar('requerimentos/R1', base);
   await gravar('requerimentos/R2', { ...base, responsavelUid: 'outro' });
   const h = (status, obs = '') => [{ em: Date.now(), uid: tec.uid, por: 'Téc', de: 'OS aberta', status, obs }];
-  expect(await como(tec).alterar('requerimentos/R1', { status: 'Em análise', historico: h('Em análise') })).toBe(OK);
-  expect(await como(tec).alterar('requerimentos/R1', { status: 'Cancelado', historico: [...h('Em análise'), ...h('Cancelado')] })).toBe(NEGADO);
+  expect(await como(tec).alterar('requerimentos/R1', { status: 'Em análise', historico: h('Em análise') })).toBe(NEGADO);
+  expect(await como(tec).alterar('requerimentos/R1', { status: 'Cancelado', historico: h('Cancelado') })).toBe(NEGADO);
+  expect(await como(tec).alterar('requerimentos/R1', { custoPecas: 10, historico: h('OS aberta') })).toBe(NEGADO);
+  // Observação sem mudar o status passa.
+  expect(await como(tec).alterar('requerimentos/R1', { historico: h('OS aberta', 'Peça chegou') })).toBe(OK);
   expect(await como(tec).alterar('requerimentos/R1', { numeroOS: '999' })).toBe(NEGADO);
   expect(await como(tec).alterar('requerimentos/R1', { responsavelUid: 'outro' })).toBe(NEGADO);
   // Sem linha nova no histórico, não passa.
   expect(await como(tec).alterar('requerimentos/R1', { status: 'OS aberta' })).toBe(NEGADO);
   // OS de outro técnico.
-  expect(await como(tec).alterar('requerimentos/R2', { status: 'Em análise', historico: h('Em análise') })).toBe(NEGADO);
+  expect(await como(tec).alterar('requerimentos/R2', { status: 'Concluído', historico: h('Concluído') })).toBe(NEGADO);
 });

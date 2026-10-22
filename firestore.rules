@@ -128,16 +128,16 @@ service cloud.firestore {
 
     function custoValido(v) { return v == null || (v is number && v >= 0 && v < 100000000); }
 
-    // Técnico responsável pela OS: só muda o status (sem cancelar) e o custo, e registra uma linha no histórico.
+    // Técnico responsável pela OS: só marca "Serviço pronto" e registra uma linha no histórico.
     function tecnicoResponsavel() {
       let novo = request.resource.data;
       let hist = resource.data.get('historico', []);
       return ativo() && perfil().papel == 'tecnico'
         && resource.data.get('responsavelUid', '') == request.auth.uid
         && resource.data.status != 'Cancelado'
-        && so(['status', 'fechadoEm', 'historico', 'custoPecas', 'custoMaoObra'])
-        && custoValido(novo.get('custoPecas', null)) && custoValido(novo.get('custoMaoObra', null))
-        && novo.status in ['Em análise', 'OS aberta', 'Concluído']
+        // Técnico só marca "Serviço pronto" (Concluído) ou registra observação; status, OS e custo são do gestor.
+        && so(['status', 'fechadoEm', 'historico'])
+        && (novo.status == resource.data.status || novo.status == 'Concluído')
         && (novo.status == 'Concluído'
           ? (novo.fechadoEm == request.time || novo.fechadoEm == resource.data.fechadoEm)
           : novo.fechadoEm == null)
@@ -171,7 +171,7 @@ service cloud.firestore {
         && request.resource.data.descricao is string && request.resource.data.descricao.size() <= 2000
         && inspecaoNovaDoUsuario(request.resource.data.inspecaoId);
       // Operador só pode somar uma ocorrência por inspeção nova a um requerimento já aberto.
-      allow update: if gestor()
+      allow update: if (gestor() && custoValido(request.resource.data.get('custoPecas', null)) && custoValido(request.resource.data.get('custoMaoObra', null)))
         || tecnicoResponsavel()
         || (ativo()
           && so(['ocorrencias', 'ocorrMU', 'ocorrPR', 'ultimaOcorrencia', 'descricao', 'prioridade', 'classificacao', 'inspecoes', 'ultimaInspecao'])
