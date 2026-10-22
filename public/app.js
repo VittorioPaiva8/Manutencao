@@ -1840,17 +1840,9 @@ async function abrirRelatorio(eq) {
   if ($('#relQR')) $('#relQR').onclick = () => imprimirEtiquetas([eq]);
   if (hoje) $('#relHoje').onclick = () => abrirInsp(hoje);
 
-  let insps = S.insp.filter(i => i.placaId === eq.id), reqs = [];
-  try {
-    const [qi, qr] = await Promise.all([
-      getDocs(query(collection(db, 'inspecoes'), where('placaId', '==', eq.id))),
-      getDocs(query(collection(db, 'requerimentos'), where('placa', '==', eq.placa))),
-    ]);
-    insps = qi.docs.map(d => ({ id: d.id, ...d.data() }));
-    reqs = qr.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch (ex) { reqs = [...S.reqAbertos, ...S.reqRecentes].filter(r => r.placa === eq.placa); }
-  if (!$('#relDados')) return; // fechou enquanto carregava
-  reqs = [...new Map(reqs.map(r => [r.id, r])).values()];
+  // Abre na hora com o que o app já tem na memória; o histórico completo vem do servidor e redesenha em seguida.
+  const doEq = l => [...new Map(l.filter(r => r.placa === eq.placa).map(r => [r.id, r])).values()];
+  let insps = S.insp.filter(i => i.placaId === eq.id), reqs = doEq([...S.reqAbertos, ...S.reqRecentes]);
 
   const pintar = () => {
     const r = calcRelatorio(eq, insps, reqs, Number($('#relPer').value));
@@ -1876,14 +1868,30 @@ async function abrirRelatorio(eq) {
         '<div><p class="section-t">OS em aberto</p>' + (r.osAbertas.length ? '<ul class="rel-os">' + r.osAbertas.map(o => '<li data-req="' + esc(o.id) + '"><span><b>' + esc(o.itemNome) + '</b><small>' + esc(o.codigo) + ' · ' + fmt(o.criadoEm || o.criadoEmLocal).slice(0, 10) + (o.responsavel ? ' · ' + esc(o.responsavel) : '') + '</small></span><span class="pill s-' + slug(o.status) + '">' + esc(o.status) + '</span></li>').join('') + '</ul>' : '<p class="hint">Nenhuma OS em aberto.</p>') + '</div></div>';
   };
   $('#relPer').onchange = () => { pintar(); pintarPrev(eq); };
-  pintar(); pintarPrev(eq);
-  $('#relDados').addEventListener('click', e => {
+  // Sem nada na memória, espera o servidor em vez de mostrar "Ainda sem checklist" por engano.
+  if (insps.length) { pintar(); pintarPrev(eq); }
+  const dados = $('#relDados');
+  dados.addEventListener('click', e => {
     const dia = e.target.closest('.rel-faixa .tem');
     if (dia) { const i = insps.filter(x => x.dataInspecao === dia.dataset.dia).sort((a, b) => (a.criadoEmLocal || 0) - (b.criadoEmLocal || 0)).pop(); if (i) abrirInsp(i); return; }
     const li = e.target.closest('[data-req]');
     const o = li && reqs.find(x => x.id === li.dataset.req);
     if (o) abrirReq(o);
   });
+
+  try {
+    const [qi, qr] = await Promise.all([
+      getDocs(query(collection(db, 'inspecoes'), where('placaId', '==', eq.id))),
+      getDocs(query(collection(db, 'requerimentos'), where('placa', '==', eq.placa))),
+    ]);
+    if (!dados.isConnected) return; // fechou enquanto carregava
+    insps = qi.docs.map(d => ({ id: d.id, ...d.data() }));
+    reqs = doEq([...qr.docs.map(d => ({ id: d.id, ...d.data() })), ...S.reqAbertos]);
+    pintar(); pintarPrev(eq);
+  } catch (ex) {
+    // Sem internet: fica com o que já estava na memória.
+    if (dados.isConnected && !insps.length) { pintar(); pintarPrev(eq); }
+  }
 }
 
 /** Modal de cadastro: `eq` nulo cria um novo; senão edita (a placa não muda, porque é o ID). */

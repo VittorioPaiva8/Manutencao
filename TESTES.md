@@ -23,6 +23,7 @@ Nada toca nos dados reais.
 | `tests/10-topo.spec.js` | Barra de cima no computador: avatar com menu do usuário (nome, tema, Sair; fecha clicando fora e com Esc), menu Gestão com as abas do gestor, número de pendências e destaque da aba aberta, abas cabendo em tela média |
 | `tests/11-publicacao.spec.js` | Publicação: o deploy no GitHub usa uma versão fixa do Firebase CLI |
 | `tests/12-ocorrencias.spec.js` | Ocorrências separadas em MU e PR: conta a cada checklist repetido, requerimento antigo continua a conta, aparece na lista, na OS, no relatório do equipamento e no Resumo; regras só deixam subir de 1 em 1 |
+| `tests/13-rapidez.spec.js` | Relatório do equipamento abre na hora com os dados que o app já tem, mesmo com o servidor lento; sem checklist mostra o aviso certo |
 
 ## Regra para toda mudança nova
 
