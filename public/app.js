@@ -243,6 +243,7 @@ onAuthStateChanged(auth, user => {
 function iniciarApp() {
   mostrarTela('#telaApp');
   $('#quem').innerHTML = $('#quemMenu').innerHTML = '<b>' + esc(S.perfil.nome) + '</b><span>' + (PAPEIS[S.perfil.papel] || 'Operador') + '</span>';
+  $('#avatar').textContent = iniciais(S.perfil.nome);
   $$('.so-gestor').forEach(e => { e.hidden = !gestor(); });
   $$('.so-tecnico').forEach(e => { e.hidden = !tecnico(); });
   $$('.so-painel').forEach(e => { e.hidden = !gestor() && !tecnico(); });
@@ -333,7 +334,8 @@ function abrirAba(v) {
   $$('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === v)));
   const t = $('.tab[data-view="' + v + '"]');
   $('#secAtual').textContent = t ? t.firstChild.textContent.trim() : '';
-  abrirMenu(false);
+  $('#btnGestao').classList.toggle('ativo', !!(t && t.closest('#listaGestao')));
+  abrirMenu(false); fecharPops();
   $$('.view').forEach(s => { s.hidden = s.id !== 'v-' + v; });
   scrollTo({ top: 0 });
 }
@@ -348,11 +350,32 @@ function abrirMenu(aberto) {
 }
 $('#btnMenu').addEventListener('click', () => abrirMenu(!$('header.top').classList.contains('menu-aberto')));
 $('#menuFundo').addEventListener('click', () => abrirMenu(false));
-document.addEventListener('keydown', e => { if (e.key === 'Escape') abrirMenu(false); });
-// O botão do menu mostra a soma dos avisos (números vermelhos) das abas visíveis.
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { abrirMenu(false); fecharPops(); } });
+// O botão do menu mostra a soma dos avisos (números vermelhos) das abas visíveis; o "Gestão", a das abas dele.
 function somarAvisos() {
-  const n = $$('#tabs .tab:not([hidden]) .badge:not([hidden])').reduce((s, b) => s + (Number(b.textContent) || 0), 0);
-  $('#menuBadge').hidden = !n; $('#menuBadge').textContent = n;
+  const soma = sel => $$(sel + ' .tab:not([hidden]) .badge:not([hidden])').reduce((s, b) => s + (Number(b.textContent) || 0), 0);
+  const mostrar = (b, n) => { if (b.hidden !== !n) b.hidden = !n; if (b.textContent !== String(n)) b.textContent = n; };
+  mostrar($('#menuBadge'), soma('#tabs'));
+  mostrar($('#gestaoBadge'), soma('#listaGestao'));
+}
+
+// ---------- Menus do topo no computador (usuário e Gestão) ----------
+function fecharPops(exceto) {
+  $$('.pop.aberto').forEach(p => {
+    if (p === exceto) return;
+    p.classList.remove('aberto'); p.querySelector('[data-pop]').setAttribute('aria-expanded', 'false');
+  });
+}
+$$('[data-pop]').forEach(b => b.addEventListener('click', () => {
+  const p = b.closest('.pop'), abrir = !p.classList.contains('aberto');
+  fecharPops(p);
+  p.classList.toggle('aberto', abrir); b.setAttribute('aria-expanded', String(abrir));
+}));
+// Clicar fora ou escolher uma opção fecha o menu aberto.
+document.addEventListener('click', e => { if (!e.target.closest('[data-pop]')) fecharPops(); });
+function iniciais(nome) {
+  const p = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  return ((p[0] || '?')[0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase();
 }
 new MutationObserver(somarAvisos).observe($('#tabs'), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
 

@@ -11,10 +11,15 @@ test('abas ficam num menu que abre e fecha pelo botão', async ({ page }) => {
   // Nome, tema e Sair saem do topo e vão para dentro do menu.
   await expect(page.locator('#quem')).toBeHidden();
   await expect(page.locator('#btnTema')).toBeHidden();
+  await expect(page.locator('#btnUsuario')).toBeHidden();
 
   await page.click('#btnMenu');
   await expect(page.locator('#btnMenu')).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('#menuCel .tab:visible')).toHaveCount(9);
+  // No celular as abas do gestor aparecem direto na lista, com nome completo e sem o botão "Gestão".
+  await expect(page.locator('#btnGestao')).toBeHidden();
+  await expect(page.locator('.tab[data-view="usr"]')).toBeVisible();
+  expect(await page.locator('.tab[data-view="check"]').innerText()).toBe('Novo checklist');
   await expect(page.locator('#quemMenu')).toContainText('Gestora Ana');
 
   // Escolher uma aba fecha o menu e mostra o nome dela no topo.
@@ -75,7 +80,8 @@ test.describe('computador', () => {
     await entrar(page, await criarConta('Op', 'op@teste.com'));
     await expect(page.locator('#btnMenu')).toBeHidden();
     await expect(page.locator('.tab[data-view="req"]')).toBeVisible();
-    await expect(page.locator('#quem')).toBeVisible();
+    await expect(page.locator('#btnUsuario')).toBeVisible();
+    await expect(page.locator('#menuCel .menu-rodape')).toBeHidden();
     await expect(page.locator('#v-req thead')).toBeHidden(); // aba fechada
     await aba(page, 'req');
     await expect(page.locator('#v-req thead')).toBeVisible();

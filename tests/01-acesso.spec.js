@@ -78,23 +78,32 @@ test('botão de tema alterna claro e escuro e lembra a escolha', async ({ page }
   const op = await criarConta('Op', 'op@teste.com');
   await entrar(page, op);
   await expect(page.locator('html')).not.toHaveAttribute('data-theme', 'dark');
+  // O botão fica no menu do usuário (avatar no topo).
+  await page.click('#btnUsuario');
   await page.click('#btnTema');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.click('#btnUsuario');
   await expect(page.locator('#btnTema')).toHaveText('Modo claro');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.click('#btnUsuario');
   await page.click('#btnTema');
   await expect(page.locator('html')).not.toHaveAttribute('data-theme', 'dark');
 });
 
 test('cada cargo vê só as abas dele', async ({ page, novaJanela }) => {
-  const visiveis = async p => (await p.locator('.tab:visible').allTextContents()).map(t => t.replace(/\s*\d+$/, '').trim());
+  const visiveis = async p => (await p.locator('.tab:visible').allInnerTexts()).map(t => t.replace(/\s*\d+$/, '').trim());
   await entrar(page, await criarConta('Op', 'op@teste.com'));
-  expect(await visiveis(page)).toEqual(['Novo checklist', 'Equipamentos', 'Requerimentos OS', 'Inspeções']);
+  expect(await visiveis(page)).toEqual(['Checklist', 'Equipamentos', 'Requerimentos', 'Inspeções']);
+  await expect(page.locator('#btnGestao')).toBeHidden();
   const t = await novaJanela();
   await entrar(t, await criarConta('Téc', 'tec@teste.com', 'tecnico'));
-  expect(await visiveis(t)).toEqual(['Novo checklist', 'Painel do dia', 'Equipamentos', 'Minhas OS', 'Requerimentos OS', 'Inspeções']);
+  expect(await visiveis(t)).toEqual(['Checklist', 'Painel', 'Equipamentos', 'Minhas OS', 'Requerimentos', 'Inspeções']);
+  await expect(t.locator('#btnGestao')).toBeHidden();
   const g = await novaJanela();
   await entrar(g, await criarConta('Ges', 'ges@teste.com', 'gestor'));
-  expect(await visiveis(g)).toEqual(['Novo checklist', 'Painel do dia', 'Equipamentos', 'Requerimentos OS', 'Inspeções', 'Finalizados', 'Relatórios', 'Cadastros', 'Usuários']);
+  expect(await visiveis(g)).toEqual(['Checklist', 'Painel', 'Equipamentos', 'Requerimentos', 'Inspeções']);
+  // As abas do gestor ficam no menu "Gestão".
+  await g.click('#btnGestao');
+  expect(await visiveis(g)).toEqual(['Checklist', 'Painel', 'Equipamentos', 'Requerimentos', 'Inspeções', 'Finalizados', 'Relatórios', 'Cadastros', 'Usuários']);
 });

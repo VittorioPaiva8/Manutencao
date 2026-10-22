@@ -201,12 +201,15 @@ test('avisos no aparelho: técnico recebe OS nova e gestor recebe requerimento u
 
   await simular(page);
   await entrar(page, tec);
+  await page.click('#btnUsuario');
   await page.click('.top-r [data-avisos-btn]');
+  await page.click('#btnUsuario');
   await expect(page.locator('.top-r [data-avisos-btn]')).toBeHidden();
   await expect(page.locator('#minhasBadge')).toHaveText('1');
   const g = await novaJanela();
   await simular(g);
   await entrar(g, gestor);
+  await g.click('#btnUsuario');
   await g.click('.top-r [data-avisos-btn]');
 
   // O que já existia não avisa; a OS que chega depois, sim.
@@ -223,6 +226,7 @@ test('avisos no aparelho: técnico recebe OS nova e gestor recebe requerimento u
   await simular(o);
   await entrar(o, await criarConta('Op', 'op@teste.com'));
   await expect(o.locator('[data-avisos-btn]')).toHaveCount(2);
+  await o.click('#btnUsuario');
   await expect(o.locator('.top-r [data-avisos-btn]')).toBeHidden();
 });
 

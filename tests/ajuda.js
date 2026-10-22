@@ -139,6 +139,8 @@ async function entrar(page, conta) {
 async function aba(page, nome) {
   // No celular as abas ficam dentro do menu.
   if (await page.locator('#btnMenu').isVisible() && !(await page.locator('.tab[data-view="' + nome + '"]').isVisible())) await page.click('#btnMenu');
+  // No computador as abas do gestor ficam no menu "Gestão".
+  if (await page.locator('#btnGestao').isVisible() && !(await page.locator('.tab[data-view="' + nome + '"]').isVisible())) await page.click('#btnGestao');
   await page.click('.tab[data-view="' + nome + '"]');
   await page.locator('#v-' + nome).waitFor();
 }

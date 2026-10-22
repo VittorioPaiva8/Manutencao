@@ -48,10 +48,35 @@ button,input,select,textarea{font:inherit;color:inherit}
 .brand h1{margin:0;font-size:17px;font-weight:800;letter-spacing:-.01em;color:#fff}
 .brand small{display:block;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#9A9A9A;font-weight:700}
 .btn-refresh{background:none;border:1px solid #3A3A3A;color:#fff;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer}
-.tabs{max-width:1200px;margin:0 auto;padding:0 16px;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+.tabs{max-width:1200px;margin:0 auto;padding:0 16px;display:flex;gap:4px}
 .tab{background:none;border:0;color:#BDBDBD;padding:12px 14px 11px;font-weight:600;font-size:13px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;display:flex;gap:7px;align-items:center}
 .tab:hover{color:#fff}
 .tab[aria-selected="true"]{color:#fff;border-bottom-color:var(--accent)}
+.tab .t-cel{display:none}
+/* Menus suspensos do topo (usuário e Gestão) */
+.pop{position:relative}
+.pop-lista{display:none;position:absolute;top:calc(100% + 6px);z-index:30;min-width:220px;background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 12px 32px rgba(0,0,0,.22);padding:6px}
+.pop.aberto .pop-lista{display:block}
+.pop-usuario .pop-lista{right:0}
+.pop-gestao .pop-lista{left:0;top:100%}
+.pop-item{display:block;width:100%;text-align:left;background:none;border:0;border-radius:6px;padding:9px 12px;font-size:13px;font-weight:600;color:var(--fg);cursor:pointer}
+.pop-item:hover{background:var(--info-soft)}
+.pop-lista .who{align-items:flex-start;padding:8px 12px 10px;margin-bottom:4px;border-bottom:1px solid var(--line);color:var(--fg-strong)}
+.pop-lista .who span{color:var(--muted)}
+.btn-usuario{display:flex;align-items:center;gap:6px;background:none;border:0;color:#BDBDBD;padding:2px;cursor:pointer;position:relative}
+.btn-usuario:hover,.pop.aberto .btn-usuario{color:#fff}
+.avatar{width:34px;height:34px;border-radius:50%;background:#333;border:1px solid #4A4A4A;color:#fff;display:grid;place-items:center;font-size:12px;font-weight:800;letter-spacing:.02em}
+/* Ponto vermelho no avatar enquanto houver "Ativar avisos" para tocar */
+.pop-usuario:has([data-avisos-btn]:not([hidden])) .btn-usuario::after{content:"";position:absolute;top:1px;left:27px;width:9px;height:9px;border-radius:50%;background:var(--accent);border:2px solid var(--head)}
+.tab-grupo{background:none;border:0;color:#BDBDBD;padding:12px 14px 11px;font-weight:600;font-size:13px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;display:flex;gap:7px;align-items:center}
+.tab-grupo:hover,.pop.aberto .tab-grupo{color:#fff}
+.tab-grupo.ativo{color:#fff;border-bottom-color:var(--accent)}
+.gestao-lista .tab{width:100%;justify-content:space-between;color:var(--fg);border-bottom:0;border-radius:6px;padding:9px 12px}
+.gestao-lista .tab:hover{color:var(--fg-strong);background:var(--info-soft)}
+.gestao-lista .tab[aria-selected="true"]{color:var(--fg-strong);background:var(--info-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.top .net,.top .net.on,.top .net.off{background:none;padding:4px 2px;font-weight:600;color:#BDBDBD}
+.top .net.on::before{background:#3DD07F}
+.top .net.off{color:#FF8A91}
 .btn-menu,.brand .sec-atual,.menu-rodape,.menu-fundo{display:none}
 .menu{display:contents}
 
@@ -63,7 +88,15 @@ button,input,select,textarea{font:inherit;color:inherit}
   .brand small.sub{display:none}
   .brand .sec-atual{display:block;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:#BDBDBD;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .top-r{flex-wrap:nowrap;gap:8px;flex:none}
-  .top-r .who,.top-r #btnTema,.top-r .btnSair,.top-r [data-avisos-btn]{display:none}
+  .pop-usuario{display:none}
+  .tab .t-cel{display:inline}
+  .tab .t-pc{display:none}
+  .pop-gestao{display:block}
+  .pop-gestao .tab-grupo{display:none}
+  .gestao-lista,.pop.aberto .gestao-lista{display:block;position:static;min-width:0;background:none;border:0;border-top:1px solid #2E2E2E;border-radius:0;box-shadow:none;padding:6px 0 0;margin-top:6px}
+  .gestao-lista::before{content:"Gestão";display:block;padding:8px 20px 4px;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#8A8A8A;font-weight:700}
+  .gestao-lista .tab,.gestao-lista .tab:hover{border-radius:0;color:#D6D6D6;background:none}
+  .gestao-lista .tab[aria-selected="true"]{box-shadow:none;background:#262626;color:#fff}
   .net{padding:4px 8px;font-size:11px}
   .btn-menu{display:inline-flex;position:relative;align-items:center;justify-content:center;width:44px;height:44px;margin-right:-4px;background:none;border:1px solid #3A3A3A;border-radius:10px;color:#fff;cursor:pointer}
   .btn-menu .ic-fechar{display:none}
@@ -459,14 +492,23 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
   <div class="top-in">
     <div class="brand">
       <div class="brand-mark">CHK</div>
-      <div><h1>Check List<span class="t-longo"> de Averiguação</span></h1><small class="sub">Manutenção e Controle · Revisão 003</small><small class="sec-atual" id="secAtual">Novo checklist</small></div>
+      <div><h1>Check List<span class="t-longo"> de Averiguação</span></h1><small class="sub">Manutenção e Controle</small><small class="sec-atual" id="secAtual">Novo checklist</small></div>
     </div>
     <div class="top-r">
       <span class="net on" id="netStatus">Online</span>
-      <button type="button" class="btn-refresh" data-avisos-btn hidden>Ativar avisos</button>
-      <button type="button" class="btn-refresh" id="btnTema" data-tema-btn aria-label="Alternar tema claro ou escuro">Modo escuro</button>
-      <div class="who" id="quem"></div>
-      <button type="button" class="btn-refresh btnSair">Sair</button>
+      <!-- No computador: nome, avisos, tema e Sair ficam num menu no avatar -->
+      <div class="pop pop-usuario">
+        <button type="button" class="btn-usuario" id="btnUsuario" data-pop aria-expanded="false" aria-controls="menuUsuario" aria-label="Menu do usuário">
+          <span class="avatar" id="avatar"></span>
+          <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="pop-lista" id="menuUsuario">
+          <div class="who" id="quem"></div>
+          <button type="button" class="pop-item" data-avisos-btn hidden>Ativar avisos</button>
+          <button type="button" class="pop-item" id="btnTema" data-tema-btn aria-label="Alternar tema claro ou escuro">Modo escuro</button>
+          <button type="button" class="pop-item btnSair">Sair</button>
+        </div>
+      </div>
       <!-- Só no celular: abre e fecha o menu com as abas -->
       <button type="button" class="btn-menu" id="btnMenu" aria-expanded="false" aria-controls="menuCel" aria-label="Abrir menu">
         <svg class="ic-abrir" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -477,16 +519,24 @@ img.foto-mini{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1
   </div>
   <div class="menu" id="menuCel">
   <nav class="tabs" role="tablist" id="tabs">
-    <button class="tab" role="tab" data-view="check" aria-selected="true">Novo checklist</button>
-    <button class="tab so-painel" role="tab" data-view="dia" aria-selected="false" hidden>Painel do dia <span class="badge" id="diaBadge" hidden>0</span></button>
+    <button class="tab" role="tab" data-view="check" aria-selected="true"><span class="t-cel">Novo checklist</span><span class="t-pc">Checklist</span></button>
+    <button class="tab so-painel" role="tab" data-view="dia" aria-selected="false" hidden><span class="t-cel">Painel do dia</span><span class="t-pc">Painel</span> <span class="badge" id="diaBadge" hidden>0</span></button>
     <button class="tab" role="tab" data-view="eq" aria-selected="false">Equipamentos</button>
     <button class="tab so-tecnico" role="tab" data-view="minhas" aria-selected="false" hidden>Minhas OS <span class="badge" id="minhasBadge" hidden>0</span></button>
-    <button class="tab" role="tab" data-view="req" aria-selected="false">Requerimentos OS <span class="badge" id="reqBadge" hidden>0</span></button>
+    <button class="tab" role="tab" data-view="req" aria-selected="false"><span class="t-cel">Requerimentos OS</span><span class="t-pc">Requerimentos</span> <span class="badge" id="reqBadge" hidden>0</span></button>
     <button class="tab" role="tab" data-view="insp" aria-selected="false">Inspeções</button>
-    <button class="tab so-gestor" role="tab" data-view="fin" aria-selected="false" hidden>Finalizados</button>
-    <button class="tab so-gestor" role="tab" data-view="rel" aria-selected="false" hidden>Relatórios</button>
-    <button class="tab so-gestor" role="tab" data-view="cad" aria-selected="false" hidden>Cadastros</button>
-    <button class="tab so-gestor" role="tab" data-view="usr" aria-selected="false" hidden>Usuários <span class="badge" id="usrBadge" hidden>0</span></button>
+    <!-- Abas do gestor: no computador num menu "Gestão"; no celular aparecem na lista com um título -->
+    <div class="pop pop-gestao so-gestor" hidden>
+      <button type="button" class="tab-grupo" id="btnGestao" data-pop aria-expanded="false" aria-controls="listaGestao">Gestão <span class="badge" id="gestaoBadge" hidden>0</span>
+        <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="pop-lista gestao-lista" id="listaGestao">
+      <button class="tab so-gestor" role="tab" data-view="fin" aria-selected="false" hidden>Finalizados</button>
+      <button class="tab so-gestor" role="tab" data-view="rel" aria-selected="false" hidden>Relatórios</button>
+      <button class="tab so-gestor" role="tab" data-view="cad" aria-selected="false" hidden>Cadastros</button>
+      <button class="tab so-gestor" role="tab" data-view="usr" aria-selected="false" hidden>Usuários <span class="badge" id="usrBadge" hidden>0</span></button>
+      </div>
+    </div>
   </nav>
   <div class="menu-rodape">
     <div class="who" id="quemMenu"></div>
