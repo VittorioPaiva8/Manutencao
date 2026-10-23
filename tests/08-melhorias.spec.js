@@ -116,7 +116,7 @@ test('preventiva por KM: gestor cadastra, avisa perto e vencida, técnico marca 
   await expect.poll(() => listar('preventivas')).toHaveLength(0);
 });
 
-test('técnico anexa a foto do serviço pronto ao concluir a OS', async ({ page }) => {
+test('técnico anexa a foto do serviço pronto na OS dele', async ({ page }) => {
   const tec = await criarConta('Carlos Técnico', 'tec@teste.com', 'tecnico');
   const outro = await criarConta('Outro Técnico', 'tec2@teste.com', 'tecnico');
   const op = await criarConta('Op', 'op@teste.com');
@@ -127,14 +127,15 @@ test('técnico anexa a foto do serviço pronto ao concluir a OS', async ({ page 
   await expect(page.locator('#mFotoServ')).toContainText('Sem foto');
   await page.setInputFiles('#mFotoServInp', imagemTeste());
   await expect(page.locator('#mFotoServ img')).toBeVisible();
-  await page.click('#mPronto');
+  await page.click('#mSalvar');
 
   await expect.poll(async () => (await buscar('fotos/servico_R1'))?.dados?.slice(0, 23)).toBe('data:image/jpeg;base64,');
   expect(await buscar('fotos/servico_R1')).toMatchObject({ reqId: 'R1', tipo: 'servico', criadoPor: tec.uid });
-  await expect.poll(async () => (await buscar('requerimentos/R1')).status).toBe('Concluído');
+  await expect.poll(async () => ((await buscar('requerimentos/R1')).historico || []).length).toBe(1);
   expect((await buscar('requerimentos/R1')).historico[0].obs).toBe('Foto do serviço pronto anexada.');
+  // A OS continua aberta até o gestor concluir.
+  expect((await buscar('requerimentos/R1')).status).toBe('OS aberta');
 
-  await page.selectOption('#mnFiltro', 'Concluído');
   await page.click('#minhasTbody tr[data-id="R1"]');
   await expect(page.locator('#mFotoServ img')).toHaveCount(1);
   await expect(page.locator('.hist')).toContainText('Foto do serviço pronto anexada.');
@@ -297,13 +298,11 @@ test('custo da OS: gestor informa peças e mão de obra; aparece no relatório, 
   const op = await criarConta('Op', 'op@teste.com');
   await requerimento('R1', { status: 'OS aberta', numeroOS: '7', responsavel: 'Carlos Técnico', responsavelUid: tec.uid });
   await requerimento('R2', { status: 'OS aberta', numeroOS: '8', responsavel: 'Carlos Técnico', responsavelUid: tec.uid, itemNumero: 6 });
-  // O técnico só marca o serviço pronto; não vê nem lança custo.
+  // O técnico não vê nem lança custo.
   await entrar(page, tec);
   await aba(page, 'minhas');
   await page.click('#minhasTbody tr[data-id="R1"]');
   await expect(page.locator('#mCustoPecas, #mCustoMO')).toHaveCount(0);
-  await page.click('#mPronto');
-  await expect.poll(async () => (await buscar('requerimentos/R1')).status).toBe('Concluído');
 
   // Regras: técnico e operador não mexem no custo; custo negativo é recusado.
   const linha = { em: 1, uid: tec.uid, obs: '' };
@@ -315,14 +314,16 @@ test('custo da OS: gestor informa peças e mão de obra; aparece no relatório, 
   expect(await como(gestora).alterar('requerimentos/R2', { custoPecas: -5 })).toBe(403);
   expect(await como(gestora).alterar('requerimentos/R2', { custoPecas: 100 })).toBe(200);
   await entrar(g, gestora);
-  await aba(g, 'fin');
-  await g.click('#finTbody tr[data-id="R1"]');
+  await aba(g, 'req');
+  await g.click('#reqTbody tr[data-id="R1"]');
   await g.fill('#mCustoPecas', 'abc');
   await g.click('#mSalvar');
   await expect(g.locator('#toastRoot')).toContainText('O custo precisa ser um número');
   await g.fill('#mCustoPecas', '1.350,50');
   await g.fill('#mCustoMO', '200');
+  await g.selectOption('#mStatus', 'Concluído');
   await g.click('#mSalvar');
+  await aba(g, 'fin');
   await expect.poll(async () => (await buscar('requerimentos/R1')).custoPecas).toBe(1350.5);
   const r = await buscar('requerimentos/R1');
   expect(r).toMatchObject({ custoPecas: 1350.5, custoMaoObra: 200, status: 'Concluído' });

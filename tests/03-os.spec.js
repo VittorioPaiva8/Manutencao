@@ -64,7 +64,7 @@ test('número da OS mantém o formato: "5/2026" vira "6/2026"; sem nenhuma OS co
   await expect(page.locator('#mOS')).toHaveValue('6/2026');
 });
 
-test('técnico vê as OS dele em Minhas OS, conclui e não consegue mexer no resto', async ({ page }) => {
+test('técnico vê as OS dele em Minhas OS, registra o serviço e não consegue mexer no resto', async ({ page }) => {
   const tec = await criarConta('Carlos Técnico', 'carlos@teste.com', 'tecnico');
   await requerimento('R1', { status: 'OS aberta', numeroOS: '7', responsavel: 'Carlos Técnico', responsavelUid: tec.uid });
   await requerimento('R2', { status: 'OS aberta', numeroOS: '8', responsavel: 'Outro', responsavelUid: 'outro-uid' });
@@ -78,15 +78,16 @@ test('técnico vê as OS dele em Minhas OS, conclui e não consegue mexer no res
   await expect(page.locator('#mTratamento, #mStatus, #mOS, #mResp, #mCustoPecas, #mCustoMO')).toHaveCount(0);
   await expect(page.locator('#modalRoot .kv')).toContainText('StatusOS aberta');
   await expect(page.locator('#modalRoot .kv')).toContainText('Nº da OS7');
+  // Ele registra o serviço, mas não conclui: quem conclui é o gestor.
+  await expect(page.locator('#mPronto')).toHaveCount(0);
   await page.fill('#mObs', 'Troquei as pastilhas');
-  await page.click('#mPronto');
-  await expect.poll(async () => (await buscar('requerimentos/R1')).status).toBe('Concluído');
+  await page.click('#mSalvar');
+  await expect.poll(async () => ((await buscar('requerimentos/R1')).historico || []).length).toBe(1);
   const r = await buscar('requerimentos/R1');
-  expect(r.fechadoEm).toBeInstanceOf(Date);
-  expect(r.historico[0]).toMatchObject({ de: 'OS aberta', status: 'Concluído', obs: 'Troquei as pastilhas', uid: tec.uid });
-  await expect(page.locator('#minhasBadge')).toBeHidden();
-  await page.selectOption('#mnFiltro', 'Concluído');
-  await expect(page.locator('#minhasTbody tr[data-id]')).toHaveCount(1);
+  expect(r.status).toBe('OS aberta');
+  expect(r.fechadoEm).toBeNull();
+  expect(r.historico[0]).toMatchObject({ de: 'OS aberta', status: 'OS aberta', obs: 'Troquei as pastilhas', uid: tec.uid });
+  await expect(page.locator('#minhasBadge')).toHaveText('1');
 
   // OS de outro técnico abre só para leitura.
   await aba(page, 'req');

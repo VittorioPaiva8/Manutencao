@@ -1022,9 +1022,8 @@ function abrirReq(r) {
   if (pode) campos.push(['Custo', temCusto(r) ? fmtReais(custoReq(r)) + ' (peças ' + fmtReais(r.custoPecas) + ' · mão de obra ' + fmtReais(r.custoMaoObra) + ')' : '']);
   else campos.splice(1, 0, ['Status', r.status], ['Nº da OS', r.numeroOS], ['Responsável', r.responsavel]);
   const camposVis = campos.filter(([, v]) => v !== '' && v != null);
-  // O técnico responsável só anexa a foto, conta o que fez e marca "Serviço pronto".
+  // O técnico responsável só anexa a foto e conta o que fez; quem conclui a OS é o gestor.
   const tec = !pode && tecnico() && r.responsavelUid === S.user.uid && r.status !== 'Cancelado';
-  const pronto = tec && r.status !== 'Concluído';
   const edita = pode || tec;
   $('#modalRoot').innerHTML =
     '<div class="ov" id="ov"><div class="modal" role="dialog" aria-modal="true">' +
@@ -1046,7 +1045,7 @@ function abrirReq(r) {
         '<div class="field" style="margin-top:10px"><label for="mObs">Observação (opcional)</label><textarea id="mObs" class="inp" maxlength="1000" rows="2" placeholder="Fica registrada no histórico"></textarea></div></div>'
         : tec ? '<div class="field" style="margin-top:14px"><label for="mObs">Serviço realizado / observação</label><textarea id="mObs" class="inp" maxlength="1000" rows="2" placeholder="Fica registrada no histórico"></textarea></div>' : '') +
         '<p class="section-t">Histórico</p>' + htmlHistorico(r) + '</div>' +
-      '<div class="modal-f"><button class="btn" id="mImprimir" style="margin-right:auto">Imprimir / PDF</button><button class="btn" id="mCancelar">' + (edita ? 'Cancelar' : 'Fechar') + '</button>' + (edita ? '<button class="btn' + (pronto ? '' : ' primary') + '" id="mSalvar">Salvar</button>' : '') + (pronto ? '<button class="btn primary" id="mPronto">Serviço pronto</button>' : '') + '</div>' +
+      '<div class="modal-f"><button class="btn" id="mImprimir" style="margin-right:auto">Imprimir / PDF</button><button class="btn" id="mCancelar">' + (edita ? 'Cancelar' : 'Fechar') + '</button>' + (edita ? '<button class="btn primary" id="mSalvar">Salvar</button>' : '') + '</div>' +
     '</div></div>';
   const fechar = () => { $('#modalRoot').innerHTML = ''; };
   $('#mX').onclick = fechar; $('#mCancelar').onclick = fechar;
@@ -1066,8 +1065,8 @@ function abrirReq(r) {
   // Ao marcar "OS aberta" com o campo vazio, já sugere o próximo número.
   const sugerir = () => { if (pode && $('#mStatus').value === 'OS aberta' && !$('#mOS').value.trim()) $('#mOS').value = proximaOS(r.id); };
   if (pode) { $('#mStatus').addEventListener('change', sugerir); sugerir(); }
-  const salvar = concluir => {
-    const status = pode ? $('#mStatus').value : concluir ? 'Concluído' : r.status, obs = $('#mObs').value.trim();
+  $('#mSalvar').onclick = () => {
+    const status = pode ? $('#mStatus').value : r.status, obs = $('#mObs').value.trim();
     const fechado = status === 'Concluído' || status === 'Cancelado';
     const os = pode ? $('#mOS').value.trim() : (r.numeroOS || '');
     const resp = pode ? lerResponsavel() : { nome: r.responsavel || '', uid: r.responsavelUid || '' };
@@ -1081,7 +1080,8 @@ function abrirReq(r) {
       setDoc(doc(db, 'fotos', 'servico_' + r.id), { reqId: r.id, tipo: 'servico', dados: fotoServ, criadoPor: S.user.uid, criadoEm: serverTimestamp() })
         .catch(e => toast(traduzErro(e), true));
     }
-    const upd = { status, fechadoEm: fechado ? (r.fechadoEm || serverTimestamp()) : null };
+    // O técnico só acrescenta a linha no histórico; o resto é do gestor.
+    const upd = pode ? { status, fechadoEm: fechado ? (r.fechadoEm || serverTimestamp()) : null } : {};
     if (pode) Object.assign(upd, { numeroOS: os, responsavel: resp.nome, responsavelUid: resp.uid });
     if (mudouCusto) Object.assign(upd, { custoPecas: pecas, custoMaoObra: mo });
     upd.historico = arrayUnion({
@@ -1091,10 +1091,8 @@ function abrirReq(r) {
     });
     updateDoc(doc(db, 'requerimentos', r.id), upd).catch(e => toast(traduzErro(e), true));
     fechar();
-    toast(navigator.onLine ? (concluir ? 'Serviço marcado como pronto' : 'Requerimento atualizado') : 'Atualização salva offline');
+    toast(navigator.onLine ? 'Requerimento atualizado' : 'Atualização salva offline');
   };
-  $('#mSalvar').onclick = () => salvar(false);
-  if (pronto) $('#mPronto').onclick = () => salvar(true);
 }
 const idsFotosReq = r => [...new Set(r.inspecoes || [r.inspecaoId])].map(i => i + '_' + r.itemNumero);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modalRoot').innerHTML = ''; });
