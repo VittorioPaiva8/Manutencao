@@ -85,11 +85,21 @@ test.describe('gestor', () => {
       avaliador: 'Op', liberado: 'SIM', contagem: { OK: 50, MU: 0, PR: 0, NA: 0 }, respostas: [], criadoEmLocal: agora - i * 1000, criadoPor: 'x',
     }]));
     await aba(page, 'insp');
+    // Inspeções começam com 20 por página; dá para trocar para 50 ou 100.
+    await expect(page.locator('#inspTbody tr[data-id]')).toHaveCount(20);
+    await expect(page.locator('#pg-insp')).toContainText('1–20 de 60');
+    await expect(page.locator('#pg-insp')).toContainText('Página 1 de 3');
+    await page.selectOption('#pg-insp [data-tam]', '50');
     await expect(page.locator('#inspTbody tr[data-id]')).toHaveCount(50);
     await expect(page.locator('#pg-insp')).toContainText('1–50 de 60');
     await page.click('#pg-insp [data-pg="1"]');
     await expect(page.locator('#inspTbody tr[data-id]')).toHaveCount(10);
     await expect(page.locator('#pg-insp')).toContainText('Página 2 de 2');
+    // A escolha fica guardada no aparelho.
+    await page.reload();
+    await aba(page, 'insp');
+    await expect(page.locator('#pg-insp [data-tam]')).toHaveValue('50');
+    await expect(page.locator('#inspTbody tr[data-id]')).toHaveCount(50);
   });
 
   test('backup baixa uma planilha Excel com todas as abas', async ({ page }) => {

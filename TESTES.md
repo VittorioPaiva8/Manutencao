@@ -25,6 +25,7 @@ Nada toca nos dados reais.
 | `tests/12-ocorrencias.spec.js` | Ocorrências separadas em MU e PR: conta a cada checklist repetido, requerimento antigo continua a conta, aparece na lista, na OS, no relatório do equipamento e no Resumo; regras só deixam subir de 1 em 1 |
 | `tests/13-rapidez.spec.js` | Relatório do equipamento abre na hora com os dados que o app já tem, mesmo com o servidor lento; sem checklist mostra o aviso certo |
 | `tests/14-otimizacao.spec.js` | Consultas ao banco: finalizados só baixam ao abrir a aba; relatórios buscam só o período (OS antigas ainda abertas entram, fechadas fora do período não) e reaproveitam a busca |
+| `tests/16-paginacao.spec.js` | Paginação da aba Inspeções: 20 por página por padrão, troca para 50 ou 100, aparece só quando passa de 20 |
 
 ## Regra para toda mudança nova
 

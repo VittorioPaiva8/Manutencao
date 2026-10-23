@@ -117,14 +117,23 @@ function toast(msg, err) {
 }
 /** Mostra uma página de `linhas` (HTML de <tr>) e os botões de página em `#pg-<nome>`. */
 const paginas = {};
+// Listas com escolha de quantos por página (fica guardada no aparelho).
+const OPCOES_PAG = { insp: [20, 50, 100] };
+function porPagina(nome) {
+  const ops = OPCOES_PAG[nome]; if (!ops) return POR_PAGINA;
+  let v = 0; try { v = Number(localStorage.getItem('pag-' + nome)); } catch (e) {}
+  return ops.includes(v) ? v : ops[0];
+}
 function paginar(nome, linhas, maisAntigos) {
-  const total = linhas.length, nPag = Math.max(1, Math.ceil(total / POR_PAGINA));
+  const tam = porPagina(nome), ops = OPCOES_PAG[nome];
+  const total = linhas.length, nPag = Math.max(1, Math.ceil(total / tam));
   const pag = Math.min(paginas[nome] || 0, nPag - 1); paginas[nome] = pag;
   const el = $('#pg-' + nome);
-  const ini = pag * POR_PAGINA, fim = Math.min(total, ini + POR_PAGINA);
+  const ini = pag * tam, fim = Math.min(total, ini + tam);
   const mostrarMais = maisAntigos && pag === nPag - 1;
-  el.hidden = nPag <= 1 && !mostrarMais;
+  el.hidden = nPag <= 1 && !mostrarMais && !(ops && total > ops[0]);
   el.innerHTML = '<span class="dim">' + (total ? (ini + 1) + '–' + fim + ' de ' + total : '') + '</span><div class="actions">' +
+    (ops ? '<label class="pg-tam dim">Mostrar <select class="inp sm" data-tam aria-label="Itens por página">' + ops.map(n => '<option' + (n === tam ? ' selected' : '') + '>' + n + '</option>').join('') + '</select> por página</label>' : '') +
     (nPag > 1 ? '<button class="btn sm" data-pg="-1"' + (pag ? '' : ' disabled') + '>Anterior</button><span class="dim">Página ' + (pag + 1) + ' de ' + nPag + '</span>' +
       '<button class="btn sm" data-pg="1"' + (pag < nPag - 1 ? '' : ' disabled') + '>Próxima</button>' : '') +
     (mostrarMais ? '<button class="btn sm dark" data-mais="1">Carregar mais antigos</button>' : '') + '</div>';
@@ -133,6 +142,11 @@ function paginar(nome, linhas, maisAntigos) {
     if (b.dataset.mais) { maisAntigos(); return; }
     paginas[nome] = pag + Number(b.dataset.pg); el.dispatchEvent(new Event('pagina'));
     el.previousElementSibling.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+  el.onchange = e => {
+    if (!e.target.matches('[data-tam]')) return;
+    try { localStorage.setItem('pag-' + nome, e.target.value); } catch (ex) {}
+    paginas[nome] = 0; el.dispatchEvent(new Event('pagina'));
   };
   return linhas.slice(ini, fim).join('');
 }
